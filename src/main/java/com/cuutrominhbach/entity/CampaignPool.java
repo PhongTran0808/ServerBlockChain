@@ -1,0 +1,69 @@
+package com.cuutrominhbach.entity;
+
+import jakarta.persistence.*;
+import java.time.LocalDateTime;
+
+@Entity
+@Table(name = "campaign_pools")
+public class CampaignPool {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    private String province;
+
+    @Column(name = "total_fund")
+    private Long totalFund;
+
+    @Column(name = "is_receiving_active")
+    private Boolean isReceivingActive = true;
+
+    @Column(name = "updated_at")
+    private LocalDateTime updatedAt;
+
+    public CampaignPool() {}
+
+    public CampaignPool(Long id, String province, Long totalFund, Boolean isReceivingActive, LocalDateTime updatedAt) {
+        this.id = id;
+        this.province = province;
+        this.totalFund = totalFund;
+        this.isReceivingActive = isReceivingActive;
+        this.updatedAt = updatedAt;
+    }
+
+    // Getters
+    public Long getId() { return id; }
+    public String getProvince() { return province; }
+    public Long getTotalFund() { return totalFund; }
+    public Boolean getIsReceivingActive() { return isReceivingActive; }
+    public LocalDateTime getUpdatedAt() { return updatedAt; }
+
+    // Setters
+    public void setId(Long id) { this.id = id; }
+    public void setProvince(String province) { this.province = province; }
+    public void setTotalFund(Long totalFund) { this.totalFund = totalFund; }
+    public void setIsReceivingActive(Boolean isReceivingActive) { this.isReceivingActive = isReceivingActive; }
+    public void setUpdatedAt(LocalDateTime updatedAt) { this.updatedAt = updatedAt; }
+
+    // Builder
+    public static Builder builder() { return new Builder(); }
+
+    public static class Builder {
+        private Long id;
+        private String province;
+        private Long totalFund;
+        private Boolean isReceivingActive = true;
+        private LocalDateTime updatedAt;
+
+        public Builder id(Long id) { this.id = id; return this; }
+        public Builder province(String province) { this.province = province; return this; }
+        public Builder totalFund(Long totalFund) { this.totalFund = totalFund; return this; }
+        public Builder isReceivingActive(Boolean v) { this.isReceivingActive = v; return this; }
+        public Builder updatedAt(LocalDateTime updatedAt) { this.updatedAt = updatedAt; return this; }
+
+        public CampaignPool build() {
+            return new CampaignPool(id, province, totalFund, isReceivingActive, updatedAt);
+        }
+    }
+}

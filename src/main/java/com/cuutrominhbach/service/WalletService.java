@@ -1,12 +1,17 @@
 package com.cuutrominhbach.service;
 
+import com.cuutrominhbach.blockchain.BlockchainService;
 import com.cuutrominhbach.entity.*;
 import com.cuutrominhbach.exception.AuthException;
 import com.cuutrominhbach.repository.*;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.web3j.crypto.Hash;
+import org.web3j.utils.Numeric;
 
+import java.math.BigInteger;
+import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
@@ -18,15 +23,20 @@ public class WalletService {
     private final CampaignPoolRepository campaignPoolRepository;
     private final TransactionHistoryRepository txRepository;
     private final PasswordEncoder passwordEncoder;
+    private final BlockchainService blockchainService;
+
+    private static final BigInteger TOKEN_ID = BigInteger.ONE;
 
     public WalletService(UserRepository userRepository,
                          CampaignPoolRepository campaignPoolRepository,
                          TransactionHistoryRepository txRepository,
-                         PasswordEncoder passwordEncoder) {
+                         PasswordEncoder passwordEncoder,
+                         BlockchainService blockchainService) {
         this.userRepository = userRepository;
         this.campaignPoolRepository = campaignPoolRepository;
         this.txRepository = txRepository;
         this.passwordEncoder = passwordEncoder;
+        this.blockchainService = blockchainService;
     }
 
     // ── Top-up ────────────────────────────────────────────────────────────────
@@ -41,15 +51,23 @@ public class WalletService {
         if (!passwordEncoder.matches(pin, user.getHashPassword()))
             throw new AuthException("Mã PIN không đúng");
 
-        // Cộng token vào ví (dùng totalFund của campaign_pools làm ví tạm - thực tế cần cột token_balance trên user)
-        // Ghi transaction_history
+        if (user.getWalletAddress() == null || user.getWalletAddress().isBlank()) {
+            throw new IllegalArgumentException("Người dùng chưa có ví blockchain");
+        }
+
+        String txHash = blockchainService.mintToken(
+            user.getWalletAddress(),
+            TOKEN_ID,
+            BigInteger.valueOf(amount)
+        );
+
         TransactionHistory tx = new TransactionHistory(
                 null, userId, TransactionHistory.TxType.IN, amount,
-                "Nạp tiền từ Ngân hàng", null
+            "Nạp tiền từ Ngân hàng", txHash
         );
         txRepository.save(tx);
 
-        return Map.of("message", "Nạp tiền thành công", "amount", amount);
+        return Map.of("message", "Nạp tiền thành công", "amount", amount, "txHash", txHash);
     }
 
     // ── Donate ────────────────────────────────────────────────────────────────
@@ -79,17 +97,21 @@ public class WalletService {
         long perPerson = amount / recipients.size();
         if (perPerson <= 0) throw new IllegalArgumentException("Số tiền quá nhỏ để chia đều");
 
+        String anchorPayload = senderId + ":" + province + ":" + amount + ":" + recipients.size() + ":" + System.currentTimeMillis();
+        String anchorRoot = Numeric.toHexString(Hash.sha3(anchorPayload.getBytes(StandardCharsets.UTF_8)));
+        String txHash = blockchainService.storeMerkleRoot(anchorRoot);
+
         // Ghi OUT cho người gửi
         txRepository.save(new TransactionHistory(
                 senderId, null, TransactionHistory.TxType.OUT, amount,
-                "Quyên góp cho khu vực " + province, null
+            "Quyên góp cho khu vực " + province, txHash
         ));
 
         // Ghi IN cho từng người nhận
         for (User recipient : recipients) {
             txRepository.save(new TransactionHistory(
                     senderId, recipient.getId(), TransactionHistory.TxType.IN, perPerson,
-                    "Nhận quyên góp từ " + sender.getFullName(), null
+                    "Nhận quyên góp từ " + sender.getFullName(), txHash
             ));
         }
 
@@ -103,7 +125,8 @@ public class WalletService {
                 "province", province,
                 "totalAmount", amount,
                 "recipients", recipients.size(),
-                "perPerson", perPerson
+                "perPerson", perPerson,
+                "txHash", txHash
         );
     }
 

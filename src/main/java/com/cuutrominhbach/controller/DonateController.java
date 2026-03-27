@@ -1,9 +1,8 @@
 package com.cuutrominhbach.controller;
 
 import com.cuutrominhbach.dto.request.DonateRequest;
-import com.cuutrominhbach.dto.response.DonateResponse;
 import com.cuutrominhbach.exception.AuthException;
-import com.cuutrominhbach.service.DonationService;
+import com.cuutrominhbach.service.WalletService;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -15,17 +14,21 @@ import java.util.Map;
 @RequestMapping("/api")
 public class DonateController {
 
-    private final DonationService donationService;
+    private final WalletService walletService;
 
-    public DonateController(DonationService donationService) {
-        this.donationService = donationService;
+    public DonateController(WalletService walletService) {
+        this.walletService = walletService;
     }
 
     @PostMapping("/donate")
     public ResponseEntity<?> donate(@RequestBody DonateRequest request) {
         Long userId = (Long) SecurityContextHolder.getContext().getAuthentication().getPrincipal();
-        DonateResponse response = donationService.donate(userId, request);
-        return ResponseEntity.ok(response);
+        return ResponseEntity.ok(walletService.donate(
+                userId,
+                request.province(),
+                request.amount(),
+                request.password()
+        ));
     }
 
     @ExceptionHandler(IllegalArgumentException.class)

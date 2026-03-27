@@ -4,7 +4,6 @@ import com.cuutrominhbach.dto.request.ConfirmDeliveryRequest;
 import com.cuutrominhbach.dto.request.CreateOrderRequest;
 import com.cuutrominhbach.dto.request.OfflineQueueItem;
 import com.cuutrominhbach.dto.response.OrderResponse;
-import com.cuutrominhbach.entity.Role;
 import com.cuutrominhbach.security.JwtTokenProvider;
 import com.cuutrominhbach.service.EscrowService;
 import io.jsonwebtoken.Claims;
@@ -49,8 +48,10 @@ public class OrderController {
     }
 
     @PutMapping("/orders/{id}/ready")
-    public ResponseEntity<OrderResponse> markReady(@PathVariable Long id) {
-        return ResponseEntity.ok(escrowService.markReady(id));
+    public ResponseEntity<OrderResponse> markReady(@PathVariable Long id,
+                                                   HttpServletRequest request) {
+        Long shopId = getUserId(request);
+        return ResponseEntity.ok(escrowService.markReady(id, shopId));
     }
 
     @PutMapping("/orders/{id}/pickup")

@@ -11,6 +11,7 @@ public class UserResponse {
     private String walletAddress;
     private String province;
     private Boolean isApproved;
+    private String approvalStatus;
 
     public static UserResponse from(User user) {
         UserResponse r = new UserResponse();
@@ -21,6 +22,13 @@ public class UserResponse {
         r.walletAddress = user.getWalletAddress();
         r.province = user.getProvince();
         r.isApproved = user.getIsApproved();
+        if (user.getIsApproved() == null) {
+            r.approvalStatus = "PENDING";
+        } else if (Boolean.TRUE.equals(user.getIsApproved())) {
+            r.approvalStatus = "APPROVED";
+        } else {
+            r.approvalStatus = "REJECTED";
+        }
         return r;
     }
 
@@ -31,4 +39,5 @@ public class UserResponse {
     public String getWalletAddress() { return walletAddress; }
     public String getProvince() { return province; }
     public Boolean getIsApproved() { return isApproved; }
+    public String getApprovalStatus() { return approvalStatus; }
 }

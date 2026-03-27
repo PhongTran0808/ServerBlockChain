@@ -46,6 +46,10 @@ public class EscrowService {
         User citizen = userRepository.findById(citizenId)
                 .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy người dùng"));
 
+        if (citizen.getRole() != Role.CITIZEN) {
+            throw new IllegalArgumentException("Chỉ CITIZEN mới có thể tạo đơn hàng");
+        }
+
         // Verify PIN
         if (!passwordEncoder.matches(req.getPin(), citizen.getHashPassword())) {
             throw new AuthException("PIN không đúng");
@@ -60,6 +64,10 @@ public class EscrowService {
 
         User shop = userRepository.findById(req.getShopId())
                 .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy cửa hàng"));
+
+        if (!Boolean.TRUE.equals(shop.getIsApproved())) {
+            throw new IllegalArgumentException("Cửa hàng chưa được admin phê duyệt");
+        }
 
         // Lock tokens on blockchain
         String lockTxHash = blockchainService.lockTokens(
@@ -111,6 +119,15 @@ public class EscrowService {
 
     @Transactional
     public List<OrderResponse> syncOfflineQueue(Long transporterId, List<OfflineQueueItem> items) {
+        User transporter = userRepository.findById(transporterId)
+                .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy shipper"));
+        if (transporter.getRole() != Role.TRANSPORTER) {
+            throw new IllegalArgumentException("Chỉ TRANSPORTER mới được đồng bộ offline queue");
+        }
+        if (!Boolean.TRUE.equals(transporter.getIsApproved())) {
+            throw new IllegalArgumentException("Shipper chưa được admin phê duyệt");
+        }
+
         return items.stream().map(item -> {
             try {
                 ConfirmDeliveryRequest req = new ConfirmDeliveryRequest();
@@ -145,9 +162,23 @@ public class EscrowService {
     }
 
     @Transactional
-    public OrderResponse markReady(Long orderId) {
+    public OrderResponse markReady(Long orderId, Long shopId) {
         Order order = orderRepository.findById(orderId)
                 .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy đơn hàng"));
+
+        User shop = userRepository.findById(shopId)
+                .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy cửa hàng"));
+        if (shop.getRole() != Role.SHOP) {
+            throw new IllegalArgumentException("Chỉ SHOP mới được đánh dấu đơn READY");
+        }
+        if (!Boolean.TRUE.equals(shop.getIsApproved())) {
+            throw new IllegalArgumentException("Cửa hàng chưa được admin phê duyệt");
+        }
+
+        if (order.getShop() == null || !order.getShop().getId().equals(shopId)) {
+            throw new IllegalArgumentException("Bạn không có quyền thao tác đơn hàng này");
+        }
+
         order.setStatus(OrderStatus.READY);
         order.setUpdatedAt(LocalDateTime.now());
         return OrderResponse.from(orderRepository.save(order));
@@ -159,6 +190,15 @@ public class EscrowService {
                 .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy đơn hàng"));
         User transporter = userRepository.findById(transporterId)
                 .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy shipper"));
+
+        if (!Boolean.TRUE.equals(transporter.getIsApproved())) {
+            throw new IllegalArgumentException("Shipper chưa được admin phê duyệt");
+        }
+
+        if (transporter.getRole() != Role.TRANSPORTER) {
+            throw new IllegalArgumentException("Chỉ TRANSPORTER mới được nhận đơn");
+        }
+
         order.setTransporter(transporter);
         order.setStatus(OrderStatus.IN_TRANSIT);
         order.setUpdatedAt(LocalDateTime.now());

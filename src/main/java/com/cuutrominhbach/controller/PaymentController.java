@@ -2,6 +2,7 @@ package com.cuutrominhbach.controller;
 
 import com.cuutrominhbach.blockchain.BlockchainService;
 import com.cuutrominhbach.dto.request.QrPaymentRequest;
+import com.cuutrominhbach.entity.Role;
 import com.cuutrominhbach.entity.User;
 import com.cuutrominhbach.repository.UserRepository;
 import com.cuutrominhbach.security.JwtTokenProvider;
@@ -41,6 +42,14 @@ public class PaymentController {
         User shop = userRepository.findById(shopId)
                 .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy cửa hàng"));
 
+        if (shop.getRole() != Role.SHOP) {
+            throw new IllegalArgumentException("Chỉ SHOP mới được nhận thanh toán QR");
+        }
+
+        if (!Boolean.TRUE.equals(shop.getIsApproved())) {
+            throw new IllegalArgumentException("Tài khoản cửa hàng chưa được admin phê duyệt");
+        }
+
         String txHash = blockchainService.transferToken(
                 req.getCitizenWalletAddress(),
                 shop.getWalletAddress(),
@@ -60,6 +69,17 @@ public class PaymentController {
         Claims claims = getClaims(request);
         Long shopId = Long.valueOf(claims.get("userId").toString());
         Long amount = Long.valueOf(body.get("amount").toString());
+
+        User shop = userRepository.findById(shopId)
+            .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy cửa hàng"));
+
+        if (shop.getRole() != Role.SHOP) {
+            throw new IllegalArgumentException("Chỉ SHOP mới được gửi yêu cầu rút tiền");
+        }
+
+        if (!Boolean.TRUE.equals(shop.getIsApproved())) {
+            throw new IllegalArgumentException("Tài khoản cửa hàng chưa được admin phê duyệt");
+        }
 
         // Ghi nhận yêu cầu rút tiền — trong MVP chỉ trả về xác nhận
         return ResponseEntity.ok(Map.of(

@@ -1,7 +1,9 @@
 package com.cuutrominhbach.controller;
 
 import com.cuutrominhbach.dto.request.LoginRequest;
+import com.cuutrominhbach.dto.request.RegisterRequest;
 import com.cuutrominhbach.dto.response.LoginResponse;
+import com.cuutrominhbach.dto.response.RegisterResponse;
 import com.cuutrominhbach.exception.AuthException;
 import com.cuutrominhbach.service.AuthService;
 import org.slf4j.Logger;
@@ -34,6 +36,21 @@ public class AuthController {
                     .body(Map.of("error", ex.getMessage()));
         } catch (Exception ex) {
             log.error("LOGIN ERROR: {}", ex.getMessage(), ex);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(Map.of("error", "Lỗi hệ thống"));
+        }
+    }
+
+    @PostMapping("/register")
+    public ResponseEntity<?> register(@RequestBody RegisterRequest request) {
+        try {
+            RegisterResponse response = authService.register(request);
+            return ResponseEntity.status(HttpStatus.CREATED).body(response);
+        } catch (AuthException ex) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                    .body(Map.of("error", ex.getMessage()));
+        } catch (Exception ex) {
+            log.error("REGISTER ERROR: {}", ex.getMessage(), ex);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                     .body(Map.of("error", "Lỗi hệ thống"));
         }

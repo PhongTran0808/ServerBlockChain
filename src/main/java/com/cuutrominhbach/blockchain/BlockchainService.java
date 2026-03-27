@@ -3,23 +3,28 @@ package com.cuutrominhbach.blockchain;
 import com.cuutrominhbach.exception.BlockchainException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 import org.web3j.abi.FunctionEncoder;
 import org.web3j.abi.datatypes.Address;
+import org.web3j.abi.datatypes.DynamicArray;
 import org.web3j.abi.datatypes.DynamicBytes;
 import org.web3j.abi.datatypes.Function;
+import org.web3j.abi.datatypes.generated.Bytes32;
 import org.web3j.abi.datatypes.generated.Uint256;
 import org.web3j.crypto.Credentials;
 import org.web3j.protocol.Web3j;
 import org.web3j.protocol.core.methods.response.EthSendTransaction;
-import org.web3j.tx.RawTransactionManager;
+import org.web3j.tx.FastRawTransactionManager;
 import org.web3j.tx.gas.DefaultGasProvider;
+import org.web3j.utils.Numeric;
 
 import java.io.IOException;
 import java.math.BigInteger;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.List;
 
 @Service
 public class BlockchainService {
@@ -29,13 +34,18 @@ public class BlockchainService {
     private final Web3j web3j;
     private final Credentials credentials;
     private final String contractAddress;
+    private final long configuredChainId;
+    private volatile Long resolvedChainId;
+    private volatile FastRawTransactionManager fastTxManager;
 
     public BlockchainService(Web3j web3j,
                              Credentials credentials,
-                             @Qualifier("contractAddress") String contractAddress) {
+                             @Qualifier("contractAddress") String contractAddress,
+                             @Value("${web3j.chain-id:0}") long configuredChainId) {
         this.web3j = web3j;
         this.credentials = credentials;
         this.contractAddress = contractAddress;
+        this.configuredChainId = configuredChainId;
     }
 
     /**
@@ -137,10 +147,70 @@ public class BlockchainService {
         }
     }
 
+    /**
+     * Best-effort sync of a Merkle root to contract.
+     * Expects contract to expose: storeMerkleRoot(bytes32 root)
+     */
+    public String storeMerkleRoot(String merkleRoot) {
+        try {
+            byte[] rootBytes = Numeric.hexStringToByteArray(merkleRoot);
+            if (rootBytes.length != 32) {
+                throw new IllegalArgumentException("Merkle root phải có độ dài bytes32");
+            }
+
+            Function function = new Function(
+                    "storeMerkleRoot",
+                    Collections.singletonList(new Bytes32(rootBytes)),
+                    Collections.emptyList()
+            );
+            return sendTransaction(function);
+        } catch (IOException e) {
+            log.error("storeMerkleRoot - RPC connection failed", e);
+            throw new BlockchainException("Không thể kết nối đến mạng blockchain");
+        } catch (Exception e) {
+            log.error("storeMerkleRoot - transaction failed", e);
+            throw new BlockchainException("Đồng bộ Merkle root thất bại: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Claim distribution by proof.
+     * Expects contract to expose: claimDistribution(address to, uint256 amount, bytes32[] proof)
+     */
+    public String claimDistribution(String toAddress, BigInteger amount, List<String> proof) {
+        try {
+            List<Bytes32> proofBytes = proof.stream().map(item -> {
+                byte[] raw = Numeric.hexStringToByteArray(item);
+                if (raw.length != 32) {
+                    throw new IllegalArgumentException("Merkle proof item phải có độ dài bytes32");
+                }
+                return new Bytes32(raw);
+            }).toList();
+
+            Function function = new Function(
+                    "claimDistribution",
+                    Arrays.asList(
+                            new Address(toAddress),
+                            new Uint256(amount),
+                            new DynamicArray<>(Bytes32.class, proofBytes)
+                    ),
+                    Collections.emptyList()
+            );
+
+            return sendTransaction(function);
+        } catch (IOException e) {
+            log.error("claimDistribution - RPC connection failed", e);
+            throw new BlockchainException("Không thể kết nối đến mạng blockchain");
+        } catch (Exception e) {
+            log.error("claimDistribution - transaction failed", e);
+            throw new BlockchainException("Claim on-chain thất bại: " + e.getMessage());
+        }
+    }
+
     private String sendTransaction(Function function) throws Exception {
         String encodedFunction = FunctionEncoder.encode(function);
 
-        RawTransactionManager txManager = new RawTransactionManager(web3j, credentials);
+        FastRawTransactionManager txManager = getTransactionManager();
 
         EthSendTransaction ethSendTransaction = txManager.sendTransaction(
                 DefaultGasProvider.GAS_PRICE,
@@ -157,5 +227,46 @@ public class BlockchainService {
         }
 
         return ethSendTransaction.getTransactionHash();
+    }
+
+    private FastRawTransactionManager getTransactionManager() throws IOException {
+        if (fastTxManager != null) {
+            return fastTxManager;
+        }
+
+        synchronized (this) {
+            if (fastTxManager != null) {
+                return fastTxManager;
+            }
+            long chainId = resolveChainId();
+            fastTxManager = new FastRawTransactionManager(web3j, credentials, chainId);
+            return fastTxManager;
+        }
+    }
+
+    private long resolveChainId() throws IOException {
+        if (resolvedChainId != null && resolvedChainId > 0) {
+            return resolvedChainId;
+        }
+
+        synchronized (this) {
+            if (resolvedChainId != null && resolvedChainId > 0) {
+                return resolvedChainId;
+            }
+
+            if (configuredChainId > 0) {
+                resolvedChainId = configuredChainId;
+                return resolvedChainId;
+            }
+
+            BigInteger chainIdFromRpc = web3j.ethChainId().send().getChainId();
+            if (chainIdFromRpc == null || chainIdFromRpc.signum() <= 0) {
+                throw new IOException("Không lấy được chainId hợp lệ từ RPC");
+            }
+
+            resolvedChainId = chainIdFromRpc.longValueExact();
+            log.info("Resolved chainId from RPC: {}", resolvedChainId);
+            return resolvedChainId;
+        }
     }
 }

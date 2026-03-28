@@ -84,12 +84,18 @@ public class AdminController {
     // ── Users ──────────────────────────────────────────────────────────────────
 
     @GetMapping("/users")
-    public ResponseEntity<List<UserResponse>> getUsers() {
+    public ResponseEntity<List<UserResponse>> getUsers(@RequestParam(required = false) String q) {
         ensureAdmin();
 
-        return ResponseEntity.ok(
-                userRepository.findAll().stream().map(UserResponse::from).collect(Collectors.toList())
-        );
+        List<User> users = userRepository.findAll();
+        if (q != null && !q.isBlank()) {
+            String lower = q.trim().toLowerCase();
+            users = users.stream()
+                    .filter(u -> (u.getUsername() != null && u.getUsername().toLowerCase().contains(lower))
+                            || (u.getFullName() != null && u.getFullName().toLowerCase().contains(lower)))
+                    .collect(Collectors.toList());
+        }
+        return ResponseEntity.ok(users.stream().map(UserResponse::from).collect(Collectors.toList()));
     }
 
     @PutMapping("/users/{id}/review")
@@ -132,6 +138,15 @@ public class AdminController {
 
         return ResponseEntity.ok(
                 itemRepository.findAll().stream().map(ItemResponse::from).collect(Collectors.toList())
+        );
+    }
+
+    /** Endpoint public — citizen/shop đều gọi được để xem danh mục */
+    @GetMapping("/items/public")
+    public ResponseEntity<List<ItemResponse>> getPublicItems() {
+        return ResponseEntity.ok(
+                itemRepository.findByStatus(ItemStatus.ACTIVE)
+                        .stream().map(ItemResponse::from).collect(Collectors.toList())
         );
     }
 
@@ -178,6 +193,21 @@ public class AdminController {
         ensureAdmin();
 
         return ResponseEntity.ok(campaignPoolRepository.findAll());
+    }
+
+    /** Endpoint public — Citizen gọi để lấy danh sách tỉnh đang nhận quyên góp */
+    @GetMapping("/campaigns/active")
+    public ResponseEntity<List<Map<String, Object>>> getActiveCampaigns() {
+        List<Map<String, Object>> result = campaignPoolRepository.findAll().stream()
+                .filter(p -> Boolean.TRUE.equals(p.getIsReceivingActive()))
+                .map(p -> {
+                    Map<String, Object> m = new java.util.HashMap<>();
+                    m.put("province", p.getProvince());
+                    m.put("totalFund", p.getTotalFund());
+                    return m;
+                })
+                .collect(Collectors.toList());
+        return ResponseEntity.ok(result);
     }
 
     @GetMapping("/campaigns/province-stats")

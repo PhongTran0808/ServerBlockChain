@@ -12,6 +12,7 @@ public class TransactionResponse {
     private String txHash;
     private Long fromUserId;
     private Long toUserId;
+    private Long batchId;
     private LocalDateTime createdAt;
 
     public TransactionResponse() {}
@@ -20,33 +21,44 @@ public class TransactionResponse {
         TransactionResponse r = new TransactionResponse();
         r.id = t.getId();
         r.type = t.getType().name();
-        r.eventType = resolveEventType(t.getNote());
+        r.eventType = resolveEventType(t.getType(), t.getNote(), t.getBatchId());
         r.amount = t.getAmount();
         r.note = t.getNote();
         r.txHash = t.getTxHash();
         r.fromUserId = t.getFromUserId();
         r.toUserId = t.getToUserId();
+        r.batchId = t.getBatchId();
         r.createdAt = t.getCreatedAt();
         return r;
     }
 
-    private static String resolveEventType(String note) {
-        if (note == null || note.isBlank()) {
-            return "UNKNOWN";
-        }
+    private static String resolveEventType(TransactionHistory.TxType type, String note, Long batchId) {
+        if (type == null) return "UNKNOWN";
 
-        String normalized = note.trim().toLowerCase();
-        if (normalized.startsWith("nap tien")) return "TOPUP";
-        if (normalized.startsWith("nạp tiền")) return "TOPUP";
-        if (normalized.startsWith("quyen gop")) return "DONATE";
-        if (normalized.startsWith("quyên góp")) return "DONATE";
-        if (normalized.startsWith("nhan cuu tro campaign")) return "AIRDROP";
-        if (normalized.startsWith("nhận cứu trợ campaign")) return "AIRDROP";
-        if (normalized.startsWith("nhan cuu tro claim")) return "CLAIM";
-        if (normalized.startsWith("nhận cứu trợ claim")) return "CLAIM";
+        // Giai đoạn 1: Quyên góp
+        if (type == TransactionHistory.TxType.DONATE)           return "DONATE";
+        // Giai đoạn 2: Cứu trợ khẩn cấp
+        if (type == TransactionHistory.TxType.ALLOCATE_ESCROW)  return "ALLOCATE_ESCROW";
+        if (type == TransactionHistory.TxType.RECEIVE_RELIEF)   return "RECEIVE_RELIEF";
+        if (type == TransactionHistory.TxType.PAY_SHOP)         return "PAY_SHOP";
+        // Giai đoạn 3: Phục hồi
+        if (type == TransactionHistory.TxType.AIRDROP)          return "AIRDROP";
+        if (type == TransactionHistory.TxType.WITHDRAW)         return "WITHDRAW";
 
-        return "UNKNOWN";
+        // Backward compat: data cũ dùng IN/OUT/TRANSFER — phân loại qua note
+        if (note == null || note.isBlank()) return type.name();
+        String n = note.trim().toLowerCase();
+        if (n.startsWith("nạp tiền"))           return "TOPUP";
+        if (n.startsWith("quyên góp"))          return "DONATE";
+        if (n.startsWith("nhận cứu trợ campaign")) return "AIRDROP";
+        if (n.startsWith("nhận cứu trợ claim"))   return "CLAIM";
+        if (n.startsWith("rút tiền") || n.startsWith("quy đổi token")) return "WITHDRAW";
+        if (n.startsWith("thanh toán đơn"))     return "ORDER_PAYMENT";
+        if (batchId != null)                     return "RELIEF_BATCH";
+
+        return type.name();
     }
+
 
     public Long getId() { return id; }
     public String getType() { return type; }
@@ -56,5 +68,6 @@ public class TransactionResponse {
     public String getTxHash() { return txHash; }
     public Long getFromUserId() { return fromUserId; }
     public Long getToUserId() { return toUserId; }
+    public Long getBatchId() { return batchId; }
     public LocalDateTime getCreatedAt() { return createdAt; }
 }

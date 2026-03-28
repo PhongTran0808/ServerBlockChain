@@ -47,6 +47,15 @@ public class OrderController {
         return ResponseEntity.ok(orders);
     }
 
+    /** Shop lấy đơn theo trạng thái cụ thể (PENDING, READY, ...) */
+    @GetMapping("/orders/by-status")
+    public ResponseEntity<List<OrderResponse>> getOrdersByStatus(
+            @RequestParam String status,
+            HttpServletRequest request) {
+        Long shopId = getUserId(request);
+        return ResponseEntity.ok(escrowService.getOrdersByShopAndStatus(shopId, status));
+    }
+
     @PutMapping("/orders/{id}/ready")
     public ResponseEntity<OrderResponse> markReady(@PathVariable Long id,
                                                    HttpServletRequest request) {
@@ -72,6 +81,15 @@ public class OrderController {
                                                                   HttpServletRequest request) {
         Long transporterId = getUserId(request);
         return ResponseEntity.ok(escrowService.syncOfflineQueue(transporterId, items));
+    }
+
+    /**
+     * Admin xử lý sự cố TNV làm mất hàng.
+     * Thực hiện đồng thời: hoàn tiền citizen + bồi thường shop + phạt TNV.
+     */
+    @PostMapping("/orders/{id}/resolve-lost")
+    public ResponseEntity<OrderResponse> resolveLostOrder(@PathVariable Long id) {
+        return ResponseEntity.ok(escrowService.resolveLostOrder(id));
     }
 
     private Long getUserId(HttpServletRequest request) {

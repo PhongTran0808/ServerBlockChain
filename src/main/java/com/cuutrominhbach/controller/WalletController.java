@@ -39,6 +39,14 @@ public class WalletController {
         return ResponseEntity.ok(walletService.donate(userId, province, amount, pin));
     }
 
+    @PostMapping("/withdraw")
+    public ResponseEntity<?> withdraw(@RequestBody Map<String, Object> body) {
+        Long userId = (Long) SecurityContextHolder.getContext().getAuthentication().getPrincipal();
+        Long amount = Long.valueOf(body.get("amount").toString());
+        String pin = (String) body.get("pin");
+        return ResponseEntity.ok(walletService.withdraw(userId, amount, pin));
+    }
+
     @GetMapping("/transactions")
     public ResponseEntity<List<TransactionResponse>> getTransactions() {
         Long userId = (Long) SecurityContextHolder.getContext().getAuthentication().getPrincipal();

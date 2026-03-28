@@ -15,9 +15,13 @@ public class OrderResponse {
     private String transporterName;
     private OrderStatus status;
     private Long totalTokens;
+    private Long shopPrice;
+    private Long refundAmount;
     private String lockTxHash;
     private String releaseTxHash;
+    private String spreadRefundTxHash;
     private Long itemId;
+    private Boolean isFlagged;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 
@@ -38,9 +42,13 @@ public class OrderResponse {
         }
         r.status = order.getStatus();
         r.totalTokens = order.getTotalTokens();
+        r.shopPrice = order.getShopPrice();
+        r.refundAmount = order.getRefundAmount();
         r.lockTxHash = order.getLockTxHash();
         r.releaseTxHash = order.getReleaseTxHash();
+        r.spreadRefundTxHash = order.getSpreadRefundTxHash();
         r.itemId = order.getItemId();
+        r.isFlagged = order.getIsFlagged();
         r.createdAt = order.getCreatedAt();
         r.updatedAt = order.getUpdatedAt();
         return r;
@@ -55,9 +63,13 @@ public class OrderResponse {
     public String getTransporterName() { return transporterName; }
     public OrderStatus getStatus() { return status; }
     public Long getTotalTokens() { return totalTokens; }
+    public Long getShopPrice() { return shopPrice; }
+    public Long getRefundAmount() { return refundAmount; }
     public String getLockTxHash() { return lockTxHash; }
     public String getReleaseTxHash() { return releaseTxHash; }
+    public String getSpreadRefundTxHash() { return spreadRefundTxHash; }
     public Long getItemId() { return itemId; }
+    public Boolean getIsFlagged() { return isFlagged; }
     public LocalDateTime getCreatedAt() { return createdAt; }
     public LocalDateTime getUpdatedAt() { return updatedAt; }
 }

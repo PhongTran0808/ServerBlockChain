@@ -5,5 +5,6 @@ public enum OrderStatus {
     READY,
     IN_TRANSIT,
     DELIVERED,
-    CANCELLED
+    CANCELLED,
+    REFUNDED_LOST   // TNV làm mất hàng — citizen được hoàn tiền, shop được bồi thường
 }

@@ -101,16 +101,16 @@ public class WalletService {
         String anchorRoot = Numeric.toHexString(Hash.sha3(anchorPayload.getBytes(StandardCharsets.UTF_8)));
         String txHash = blockchainService.storeMerkleRoot(anchorRoot);
 
-        // Ghi OUT cho người gửi
+        // Ghi OUT cho người gửi (DONATE: Nhà hảo tâm → Province Pool)
         txRepository.save(new TransactionHistory(
-                senderId, null, TransactionHistory.TxType.OUT, amount,
+                senderId, null, TransactionHistory.TxType.DONATE, amount,
             "Quyên góp cho khu vực " + province, txHash
         ));
 
-        // Ghi IN cho từng người nhận
+        // Ghi IN cho từng người nhận (RECEIVE_RELIEF: Province Pool → Citizen)
         for (User recipient : recipients) {
             txRepository.save(new TransactionHistory(
-                    senderId, recipient.getId(), TransactionHistory.TxType.IN, perPerson,
+                    senderId, recipient.getId(), TransactionHistory.TxType.RECEIVE_RELIEF, perPerson,
                     "Nhận quyên góp từ " + sender.getFullName(), txHash
             ));
         }
@@ -134,5 +134,33 @@ public class WalletService {
 
     public List<TransactionHistory> getTransactions(Long userId) {
         return txRepository.findByUserId(userId);
+    }
+
+    // ── Withdraw (Mock) ───────────────────────────────────────────────────────
+
+    @Transactional
+    public Map<String, Object> withdraw(Long userId, Long amount, String pin) {
+        if (amount == null || amount <= 0) throw new IllegalArgumentException("Số token phải lớn hơn 0");
+
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new AuthException("Người dùng không tồn tại"));
+
+        if (!passwordEncoder.matches(pin, user.getHashPassword()))
+            throw new AuthException("Mã PIN không đúng");
+
+        // Ghi lịch sử rút tiền — Giai đoạn 3: Rút tiền mặt
+        TransactionHistory tx = new TransactionHistory(
+                userId, null, TransactionHistory.TxType.WITHDRAW, amount,
+                "Quy đổi Token thành tiền mặt tái thiết sau bão",
+                "mock-burn-" + System.currentTimeMillis()
+        );
+        txRepository.save(tx);
+
+        long vnd = amount * 1000L; // 1 token = 1.000 VNĐ (mock rate)
+        return Map.of(
+                "message", "Yêu cầu rút tiền thành công",
+                "tokenAmount", amount,
+                "vndAmount", vnd
+        );
     }
 }

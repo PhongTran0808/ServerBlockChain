@@ -47,10 +47,9 @@ public class AirdropService {
         if (province == null || province.isBlank()) {
             throw new IllegalArgumentException("Tỉnh/Thành phố không được để trống");
         }
-        
-        if (!governmentAdministrativeService.isValidProvince(province.trim())) {
-            throw new IllegalArgumentException("Tỉnh/Thành không hợp lệ theo dữ liệu địa giới hành chính chính phủ");
-        }
+
+        // Bỏ validation cứng theo danh sách chính phủ — dùng tên tỉnh tự do
+        // để tương thích với cả 63 tỉnh cũ và 34 tỉnh sau sáp nhập
         
         if (distributionRoundRepository.existsByProvince(province)) {
             throw new IllegalArgumentException("Đã tồn tại Merkle distribution round cho tỉnh này, không thể chạy airdrop legacy để tránh overlap");
@@ -78,7 +77,7 @@ public class AirdropService {
                 transactionHistoryRepository.save(new TransactionHistory(
                     null,
                     citizen.getId(),
-                    TransactionHistory.TxType.IN,
+                    TransactionHistory.TxType.AIRDROP,
                     amountPerCitizen,
                     "Nhận cứu trợ campaign " + province,
                     txHash

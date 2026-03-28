@@ -29,10 +29,33 @@ public class TransactionHistory {
     @Column(name = "created_at")
     private LocalDateTime createdAt;
 
-    public enum TxType { IN, OUT }
+    /** Truy vết lô cứu trợ — nullable, chỉ có khi giao dịch thuộc 1 lô */
+    @Column(name = "batch_id")
+    private Long batchId;
+
+    public enum TxType {
+        // ── Backward compat (data cũ) ──
+        IN,        // Nhận tiền vào ví (generic)
+        OUT,       // Xuất tiền khỏi ví (generic)
+        TRANSFER,  // Chuyển khoản giữa 2 ví (generic)
+
+        // ── Giai đoạn 1: Quyên góp ──
+        DONATE,             // Nhà hảo tâm → Province Pool
+
+        // ── Giai đoạn 2: Cứu trợ khẩn cấp ──
+        ALLOCATE_ESCROW,    // Province Pool → Batch (tạm giữ khi Admin tạo lô)
+        RECEIVE_RELIEF,     // Province Pool → Citizen (Dân được nhận cứu trợ, log 1 của giao hàng)
+        PAY_SHOP,           // Citizen → Shop (Dân thanh toán ngay, log 2 của giao hàng)
+
+        // ── Giai đoạn 3: Phục hồi ──
+        AIRDROP,            // Province Pool → Citizen (Admin chia thẳng tiền còn dư)
+        WITHDRAW,           // Citizen → System (Dân rút tiền mặt)
+    }
+
 
     public TransactionHistory() {}
 
+    /** Constructor cũ — backward compatible */
     public TransactionHistory(Long fromUserId, Long toUserId, TxType type,
                                Long amount, String note, String txHash) {
         this.fromUserId = fromUserId;
@@ -44,6 +67,13 @@ public class TransactionHistory {
         this.createdAt = LocalDateTime.now();
     }
 
+    /** Constructor mới — có batchId */
+    public TransactionHistory(Long fromUserId, Long toUserId, TxType type,
+                               Long amount, String note, String txHash, Long batchId) {
+        this(fromUserId, toUserId, type, amount, note, txHash);
+        this.batchId = batchId;
+    }
+
     public Long getId() { return id; }
     public Long getFromUserId() { return fromUserId; }
     public Long getToUserId() { return toUserId; }
@@ -52,6 +82,7 @@ public class TransactionHistory {
     public String getNote() { return note; }
     public String getTxHash() { return txHash; }
     public LocalDateTime getCreatedAt() { return createdAt; }
+    public Long getBatchId() { return batchId; }
 
     public void setId(Long id) { this.id = id; }
     public void setFromUserId(Long fromUserId) { this.fromUserId = fromUserId; }
@@ -61,4 +92,5 @@ public class TransactionHistory {
     public void setNote(String note) { this.note = note; }
     public void setTxHash(String txHash) { this.txHash = txHash; }
     public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }
+    public void setBatchId(Long batchId) { this.batchId = batchId; }
 }

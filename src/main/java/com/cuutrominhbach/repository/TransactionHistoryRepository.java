@@ -15,4 +15,6 @@ public interface TransactionHistoryRepository extends JpaRepository<TransactionH
     List<TransactionHistory> findByUserId(@Param("userId") Long userId);
 
     List<TransactionHistory> findByToUserIdOrderByCreatedAtDesc(Long toUserId);
+
+    List<TransactionHistory> findByBatchIdOrderByCreatedAtDesc(Long batchId);
 }

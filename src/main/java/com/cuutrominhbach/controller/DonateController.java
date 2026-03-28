@@ -27,7 +27,7 @@ public class DonateController {
                 userId,
                 request.province(),
                 request.amount(),
-                request.password()
+                request.resolvedPin()
         ));
     }
 

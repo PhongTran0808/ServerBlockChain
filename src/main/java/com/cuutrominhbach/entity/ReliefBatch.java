@@ -52,12 +52,12 @@ public class ReliefBatch {
     private User createdBy;
 
     /** Nhu yếu phẩm trong lô (1 người nhận 1 phần của item này) — legacy, dùng batchItems thay thế */
-    @ManyToOne(fetch = FetchType.EAGER)
+    @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "item_id")
     private Item item;
 
     /** Danh sách vật phẩm combo trong lô */
-    @OneToMany(mappedBy = "batch", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.EAGER)
+    @OneToMany(mappedBy = "batch", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
     private java.util.List<BatchItem> batchItems = new java.util.ArrayList<>();
 
     @Column(name = "created_at")

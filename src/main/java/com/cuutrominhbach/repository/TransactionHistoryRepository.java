@@ -17,4 +17,10 @@ public interface TransactionHistoryRepository extends JpaRepository<TransactionH
     List<TransactionHistory> findByToUserIdOrderByCreatedAtDesc(Long toUserId);
 
     List<TransactionHistory> findByBatchIdOrderByCreatedAtDesc(Long batchId);
+
+    /** Kiểm tra hiệu quả: citizen đã nhận hàng từ lô này chưa? */
+    boolean existsByBatchIdAndTypeAndToUserId(
+            Long batchId,
+            TransactionHistory.TxType type,
+            Long toUserId);
 }

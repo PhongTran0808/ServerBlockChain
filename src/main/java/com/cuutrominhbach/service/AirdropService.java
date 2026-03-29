@@ -14,12 +14,15 @@ import org.springframework.stereotype.Service;
 import java.math.BigInteger;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 @Service
 public class AirdropService {
 
     private static final Logger log = LoggerFactory.getLogger(AirdropService.class);
     private static final BigInteger TOKEN_ID = BigInteger.ONE;
+    private final ExecutorService airdropExecutor = Executors.newSingleThreadExecutor();
 
     private final UserRepository userRepository;
     private final BlockchainService blockchainService;
@@ -40,16 +43,13 @@ public class AirdropService {
     }
 
     /**
-     * Airdrop tokens to all CITIZEN users in a province.
-     * Returns list of transaction hashes.
+     * Airdrop tokens to all CITIZEN users in a province via a background queue.
+     * Guaranteed sequential execution to prevent Web3 RPC Rate Limit & Nonce collision.
      */
-    public List<String> airdrop(String province, Long amountPerCitizen) {
+    public String airdrop(String province, Long amountPerCitizen) {
         if (province == null || province.isBlank()) {
             throw new IllegalArgumentException("Tỉnh/Thành phố không được để trống");
         }
-
-        // Bỏ validation cứng theo danh sách chính phủ — dùng tên tỉnh tự do
-        // để tương thích với cả 63 tỉnh cũ và 34 tỉnh sau sáp nhập
         
         if (distributionRoundRepository.existsByProvince(province)) {
             throw new IllegalArgumentException("Đã tồn tại Merkle distribution round cho tỉnh này, không thể chạy airdrop legacy để tránh overlap");
@@ -60,32 +60,44 @@ public class AirdropService {
             throw new IllegalArgumentException("Không có Citizen nào thuộc tỉnh: " + province);
         }
 
-        List<String> txHashes = new ArrayList<>();
-        for (User citizen : citizens) {
-            if (citizen.getWalletAddress() == null || citizen.getWalletAddress().isBlank()) {
-                log.warn("Citizen {} không có wallet address, bỏ qua", citizen.getId());
-                continue;
-            }
-            try {
-                String txHash = blockchainService.mintToken(
-                        citizen.getWalletAddress(),
-                        TOKEN_ID,
-                        BigInteger.valueOf(amountPerCitizen)
-                );
-                txHashes.add(txHash);
+        log.info("Khởi động Airdrop cho {} người dân tại {}. Xin vui lòng chờ...", citizens.size(), province);
 
-                transactionHistoryRepository.save(new TransactionHistory(
-                    null,
-                    citizen.getId(),
-                    TransactionHistory.TxType.AIRDROP,
-                    amountPerCitizen,
-                    "Nhận cứu trợ campaign " + province,
-                    txHash
-                ));
-            } catch (Exception e) {
-                log.error("Airdrop thất bại cho citizen {}: {}", citizen.getId(), e.getMessage());
+        airdropExecutor.submit(() -> {
+            int successCount = 0;
+            log.info("== BẮT ĐẦU VÒNG LẶP AIRDROP NGẦM ({}) ==", province);
+
+            for (User citizen : citizens) {
+                if (citizen.getWalletAddress() == null || citizen.getWalletAddress().isBlank()) {
+                    log.warn("Citizen {} không có wallet address, bỏ qua", citizen.getId());
+                    continue;
+                }
+                try {
+                    // Call RPC (FastRawTransactionManager ensures correct nonce within a single thread)
+                    String txHash = blockchainService.mintToken(
+                            citizen.getWalletAddress(),
+                            TOKEN_ID,
+                            BigInteger.valueOf(amountPerCitizen)
+                    );
+
+                    transactionHistoryRepository.save(new TransactionHistory(
+                        null,
+                        citizen.getId(),
+                        TransactionHistory.TxType.AIRDROP,
+                        amountPerCitizen,
+                        "Nhận cứu trợ (Airdrop) khu vực " + province,
+                        txHash
+                    ));
+                    successCount++;
+                    
+                    // Delay 2000ms to avoid slamming RPC and hitting rate limit (e.g. 429 Too Many Requests)
+                    Thread.sleep(2000); 
+                } catch (Exception e) {
+                    log.error("Airdrop thất bại cho citizen {}: {}", citizen.getId(), e.getMessage());
+                }
             }
-        }
-        return txHashes;
+            log.info("== HOÀN TẤT AIRDROP ({}) - Thành công {}/{} ==", province, successCount, citizens.size());
+        });
+
+        return "Đã đưa lệnh Airdrop cho " + citizens.size() + " người dân tại " + province + " vào hàng đợi hệ thống!";
     }
 }

@@ -17,6 +17,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Collectors;
+import org.springframework.transaction.annotation.Isolation;
 
 @Service
 public class ReliefBatchService {
@@ -130,10 +131,10 @@ public class ReliefBatchService {
         // Ghi log ALLOCATE_ESCROW: Province Pool → Batch (tạm giữ)
         long totalEscrow = tokenPerPackage * totalPackages;
         txRepository.save(new TransactionHistory(
-                null, adminId,
+                null, null, // from = System (Pool), to = System (Batch Escrow)
                 TransactionHistory.TxType.ALLOCATE_ESCROW,
                 totalEscrow,
-                "Phân bổ ngân sách tạo lô: " + name + " (" + province + ")",
+                "Khoá quỹ tạo lô hàng: " + name + " (" + province + ")",
                 null,
                 saved.getId()
         ));
@@ -170,7 +171,7 @@ public class ReliefBatchService {
     // ── ADMIN: Lấy tất cả lô ─────────────────────────────────────────────────
 
     public List<ReliefBatchResponse> getAllBatches() {
-        return batchRepository.findAll().stream()
+        return batchRepository.findAllWithItems().stream()
                 .map(ReliefBatchResponse::from).collect(Collectors.toList());
     }
 
@@ -291,8 +292,13 @@ public class ReliefBatchService {
         if (batch.getStatus() != ReliefBatchStatus.ACCEPTED) {
             throw new IllegalArgumentException("Lô chưa được Shop chấp nhận");
         }
-        if (batch.getTransporter() == null || !batch.getTransporter().getId().equals(transporterId)) {
-            throw new IllegalArgumentException("Bạn không phải TNV của lô này");
+        if (batch.getTransporter() == null) {
+            throw new IllegalArgumentException("Lô này chưa được phân công TNV nào (transporter is null)");
+        }
+        if (!batch.getTransporter().getId().equals(transporterId)) {
+            throw new IllegalArgumentException(String.format(
+                "Bạn không phải TNV của lô này! (Lô thuộc về ID: %s, Bạn là ID: %s)", 
+                batch.getTransporter().getId(), transporterId));
         }
 
         // Validate QR: phải chứa batchId
@@ -308,7 +314,7 @@ public class ReliefBatchService {
 
     // ── TNV: Quét QR Citizen → phân phát 1 phần ──────────────────────────────
 
-    @Transactional
+    @Transactional(isolation = Isolation.SERIALIZABLE)
     public ReliefBatchResponse deliverToOneCitizen(Long batchId, Long transporterId, String citizenWalletQr) {
         ReliefBatch batch = getBatchOrThrow(batchId);
 
@@ -316,8 +322,13 @@ public class ReliefBatchService {
                 && batch.getStatus() != ReliefBatchStatus.IN_PROGRESS) {
             throw new IllegalArgumentException("Lô chưa được lấy hàng (cần PICKED_UP hoặc IN_PROGRESS)");
         }
-        if (batch.getTransporter() == null || !batch.getTransporter().getId().equals(transporterId)) {
-            throw new IllegalArgumentException("Bạn không phải TNV của lô này");
+        if (batch.getTransporter() == null) {
+            throw new IllegalArgumentException("Lô này chưa được phân công TNV nào (transporter is null)");
+        }
+        if (!batch.getTransporter().getId().equals(transporterId)) {
+            throw new IllegalArgumentException(String.format(
+                "Bạn không phải TNV của lô này! (Lô thuộc về ID: %s, Bạn là ID: %s)", 
+                batch.getTransporter().getId(), transporterId));
         }
         if (batch.getDeliveredCount() >= batch.getTotalPackages()) {
             throw new IllegalArgumentException("Lô đã phân phát hết");
@@ -328,23 +339,38 @@ public class ReliefBatchService {
                 .filter(u -> u.getRole() == Role.CITIZEN)
                 .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy người dân với mã QR này"));
 
+        // ── QUAN TRỌNG: Kiểm tra citizen này đã nhận hàng từ lô này chưa ──────
+        // Dùng EXISTS query hiệu quả thay vì load toàn bộ transactions vào bộ nhớ
+        // Tránh tình huống quét 2 lần (debounce bị vượt qua hoặc 2 request song song)
+        boolean alreadyReceived = txRepository.existsByBatchIdAndTypeAndToUserId(
+                batchId, TransactionHistory.TxType.RECEIVE_RELIEF, citizen.getId());
+        if (alreadyReceived) {
+            throw new IllegalArgumentException("Người dân này đã nhận hàng từ lô #" + batchId + " rồi");
+        }
+
         User shop = batch.getShop();
         long tokenAmount = batch.getTokenPerPackage();
 
-        // Trừ token từ ví citizen → cộng vào ví shop (on-chain)
+        // Gọi Smart Contract: Giai đoạn 2 (deliverBatch - Atomic Escrow)
+        // Kéo tiền từ Quỹ tỉnh (provincePools) sang Ví Shop ngay lập tức
         String txHash = null;
         try {
             if (citizen.getWalletAddress() != null && shop != null && shop.getWalletAddress() != null) {
-                txHash = blockchainService.transferToken(
+                // Wei to Token conversion is 1:1 in our design
+                txHash = blockchainService.deliverBatch(
+                        batch.getProvince(),
                         citizen.getWalletAddress(),
                         shop.getWalletAddress(),
-                        TOKEN_ID,
                         BigInteger.valueOf(tokenAmount)
                 );
+                log.info("Khớp lệnh Web3 Thành công (deliverBatch). Tỉnh: {}, Mức: {}, TX: {}", batch.getProvince(), tokenAmount, txHash);
+            } else {
+                 log.warn("Thiếu địa chỉ ví cho hệ thống on-chain. Cần cập nhật Citizen Wallet hoặc Shop Wallet.");
+                 txHash = "mock-delivery-missing-wallet-" + batchId + "-" + citizen.getId();
             }
         } catch (Exception e) {
-            log.warn("Blockchain transfer thất bại cho lô #{}, citizen {}: {}", batchId, citizen.getId(), e.getMessage());
-            txHash = "mock-delivery-" + batchId + "-" + citizen.getId();
+            log.warn("Blockchain deliver thất bại cho lô #{}, citizen {}: {}", batchId, citizen.getId(), e.getMessage());
+            txHash = "fallback-offline-tx-" + batchId + "-" + citizen.getId();
         }
 
         // ── 2 Log nguyên tử (Atomic Transaction) ──────────────────────────────

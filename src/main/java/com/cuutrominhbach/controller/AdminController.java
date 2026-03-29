@@ -81,6 +81,64 @@ public class AdminController {
         return ResponseEntity.ok(new AdminStatsResponse(totalFund, totalCitizens, approvedShops, totalAirdrops));
     }
 
+    @GetMapping("/overview-stats")
+    public ResponseEntity<Map<String, Object>> getOverviewStats() {
+        ensureAdmin();
+
+        long totalFunds = campaignPoolRepository.findAll().stream()
+                .mapToLong(cp -> cp.getTotalFund() != null ? cp.getTotalFund() : 0L).sum();
+        long totalCitizens = userRepository.countByRole(Role.CITIZEN);
+        long totalShops = userRepository.countByRole(Role.SHOP);
+        
+        // Count DONORS as users who have DONATE transactions
+        long totalDonors = transactionHistoryRepository.findAll().stream()
+                .filter(tx -> tx.getType() == TransactionHistory.TxType.DONATE)
+                .map(TransactionHistory::getFromUserId)
+                .distinct()
+                .count();
+
+        List<TransactionHistory> recentTxs = transactionHistoryRepository.findAll().stream()
+                .sorted((a, b) -> {
+                    if (b.getCreatedAt() == null) return -1;
+                    if (a.getCreatedAt() == null) return 1;
+                    return b.getCreatedAt().compareTo(a.getCreatedAt());
+                })
+                .limit(5)
+                .collect(Collectors.toList());
+
+        // Cache names for the 5 transactions
+        Map<Long, String> nameCache = new HashMap<>();
+        for (TransactionHistory tx : recentTxs) {
+            if (tx.getFromUserId() != null && !nameCache.containsKey(tx.getFromUserId())) {
+                userRepository.findById(tx.getFromUserId()).ifPresent(u -> nameCache.put(u.getId(), u.getFullName()));
+            }
+            if (tx.getToUserId() != null && !nameCache.containsKey(tx.getToUserId())) {
+                userRepository.findById(tx.getToUserId()).ifPresent(u -> nameCache.put(u.getId(), u.getFullName()));
+            }
+        }
+
+        List<Map<String, Object>> recentTxList = recentTxs.stream().map(tx -> {
+            Map<String, Object> map = new HashMap<>();
+            map.put("id", tx.getId());
+            map.put("type", tx.getType().name());
+            map.put("amount", tx.getAmount());
+            map.put("note", tx.getNote());
+            map.put("createdAt", tx.getCreatedAt() != null ? tx.getCreatedAt().toString() : "");
+            map.put("txHash", tx.getTxHash() != null ? tx.getTxHash() : "");
+            map.put("fromName", tx.getFromUserId() != null ? nameCache.getOrDefault(tx.getFromUserId(), "Unknown") : "Hệ thống");
+            map.put("toName", tx.getToUserId() != null ? nameCache.getOrDefault(tx.getToUserId(), "Unknown") : "Hệ thống");
+            return map;
+        }).collect(Collectors.toList());
+
+        return ResponseEntity.ok(Map.of(
+                "totalFunds", totalFunds,
+                "totalCitizens", totalCitizens,
+                "totalShops", totalShops,
+                "totalDonors", totalDonors,
+                "recentTransactions", recentTxList
+        ));
+    }
+
     // ── Users ──────────────────────────────────────────────────────────────────
 
     @GetMapping("/users")
@@ -315,12 +373,11 @@ public class AdminController {
 
         String province = (String) body.get("province");
         Long amountPerCitizen = Long.valueOf(body.get("amountPerCitizen").toString());
-        List<String> txHashes = airdropService.airdrop(province, amountPerCitizen);
+        String msg = airdropService.airdrop(province, amountPerCitizen);
         return ResponseEntity.ok(Map.of(
                 "province", province,
                 "amountPerCitizen", amountPerCitizen,
-                "txHashes", txHashes,
-                "count", txHashes.size()
+                "message", msg
         ));
     }
 

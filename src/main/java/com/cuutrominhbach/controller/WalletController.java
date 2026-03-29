@@ -63,4 +63,15 @@ public class WalletController {
     public ResponseEntity<Map<String, String>> handleAuth(com.cuutrominhbach.exception.AuthException ex) {
         return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", ex.getMessage()));
     }
+
+    @ExceptionHandler({Exception.class})
+    public ResponseEntity<Map<String, String>> handleGenericException(Exception ex) {
+        String msg = ex.getMessage() != null ? ex.getMessage().toLowerCase() : "";
+        if (msg.contains("gas price") || msg.contains("replace existing tx") || msg.contains("nonce") || msg.contains("transaction gas")) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(Map.of("error", "Mạng Blockchain đang bận xử lý lô trước đó. Vui lòng thao tác chậm lại khoảng 3-5 giây để mạng đồng bộ."));
+        }
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                .body(Map.of("error", "Giao dịch lỗi: " + (ex.getMessage() != null ? ex.getMessage() : "Lỗi không xác định")));
+    }
 }

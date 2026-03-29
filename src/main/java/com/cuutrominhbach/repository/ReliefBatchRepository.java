@@ -9,10 +9,24 @@ import java.util.List;
 
 @Repository
 public interface ReliefBatchRepository extends JpaRepository<ReliefBatch, Long> {
+    @org.springframework.data.jpa.repository.Query("SELECT DISTINCT b FROM ReliefBatch b LEFT JOIN FETCH b.batchItems bi LEFT JOIN FETCH bi.item LEFT JOIN FETCH b.shop LEFT JOIN FETCH b.transporter WHERE b.province = :province")
     List<ReliefBatch> findByProvince(String province);
-    List<ReliefBatch> findByStatus(ReliefBatchStatus status);
-    List<ReliefBatch> findByProvinceAndStatus(String province, ReliefBatchStatus status);
+
+    @org.springframework.data.jpa.repository.Query("SELECT DISTINCT b FROM ReliefBatch b LEFT JOIN FETCH b.batchItems bi LEFT JOIN FETCH bi.item LEFT JOIN FETCH b.shop LEFT JOIN FETCH b.transporter WHERE b.status = :status")
+    List<ReliefBatch> findByStatus(com.cuutrominhbach.entity.ReliefBatchStatus status);
+
+    @org.springframework.data.jpa.repository.Query("SELECT DISTINCT b FROM ReliefBatch b LEFT JOIN FETCH b.batchItems bi LEFT JOIN FETCH bi.item LEFT JOIN FETCH b.shop LEFT JOIN FETCH b.transporter WHERE b.province = :province AND b.status = :status")
+    List<ReliefBatch> findByProvinceAndStatus(String province, com.cuutrominhbach.entity.ReliefBatchStatus status);
+
+    @org.springframework.data.jpa.repository.Query("SELECT DISTINCT b FROM ReliefBatch b LEFT JOIN FETCH b.batchItems bi LEFT JOIN FETCH bi.item LEFT JOIN FETCH b.shop LEFT JOIN FETCH b.transporter WHERE b.transporter.id = :transporterId")
     List<ReliefBatch> findByTransporterId(Long transporterId);
+
+    @org.springframework.data.jpa.repository.Query("SELECT DISTINCT b FROM ReliefBatch b LEFT JOIN FETCH b.batchItems bi LEFT JOIN FETCH bi.item LEFT JOIN FETCH b.shop LEFT JOIN FETCH b.transporter WHERE b.shop.id = :shopId")
     List<ReliefBatch> findByShopId(Long shopId);
-    List<ReliefBatch> findByShopIdAndStatus(Long shopId, ReliefBatchStatus status);
+
+    @org.springframework.data.jpa.repository.Query("SELECT DISTINCT b FROM ReliefBatch b LEFT JOIN FETCH b.batchItems bi LEFT JOIN FETCH bi.item LEFT JOIN FETCH b.shop LEFT JOIN FETCH b.transporter WHERE b.shop.id = :shopId AND b.status = :status")
+    List<ReliefBatch> findByShopIdAndStatus(Long shopId, com.cuutrominhbach.entity.ReliefBatchStatus status);
+
+    @org.springframework.data.jpa.repository.Query("SELECT DISTINCT b FROM ReliefBatch b LEFT JOIN FETCH b.batchItems bi LEFT JOIN FETCH bi.item LEFT JOIN FETCH b.shop LEFT JOIN FETCH b.transporter")
+    List<ReliefBatch> findAllWithItems();
 }

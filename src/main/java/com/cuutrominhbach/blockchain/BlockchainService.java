@@ -11,6 +11,7 @@ import org.web3j.abi.datatypes.Address;
 import org.web3j.abi.datatypes.DynamicArray;
 import org.web3j.abi.datatypes.DynamicBytes;
 import org.web3j.abi.datatypes.Function;
+import org.web3j.abi.datatypes.Utf8String;
 import org.web3j.abi.datatypes.generated.Bytes32;
 import org.web3j.abi.datatypes.generated.Uint256;
 import org.web3j.crypto.Credentials;
@@ -143,6 +144,32 @@ public class BlockchainService {
             throw new BlockchainException("Không thể kết nối đến mạng blockchain");
         } catch (Exception e) {
             log.error("transferToken - transaction failed", e);
+            throw new BlockchainException("Giao dịch blockchain thất bại: " + e.getMessage());
+        }
+    }
+
+    /**
+     * GIAI ĐOẠN 2: ATOMIC ESCROW (Lệnh Sổ Cái từ Native Blockchain)
+     * Encodes: deliverBatch(string province, address citizen, address shop, uint256 amount)
+     */
+    public String deliverBatch(String province, String citizenAddress, String shopAddress, BigInteger amountInWei) {
+        try {
+            Function function = new Function(
+                    "deliverBatch",
+                    Arrays.asList(
+                            new Utf8String(province),
+                            new Address(citizenAddress),
+                            new Address(shopAddress),
+                            new Uint256(amountInWei)
+                    ),
+                    Collections.emptyList()
+            );
+            return sendTransaction(function);
+        } catch (IOException e) {
+            log.error("deliverBatch - RPC connection failed", e);
+            throw new BlockchainException("Không thể kết nối đến mạng blockchain");
+        } catch (Exception e) {
+            log.error("deliverBatch - transaction failed", e);
             throw new BlockchainException("Giao dịch blockchain thất bại: " + e.getMessage());
         }
     }

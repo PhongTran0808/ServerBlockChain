@@ -26,6 +26,7 @@ import java.math.BigInteger;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.util.stream.Collectors;
 
 @Service
 public class BlockchainService {
@@ -234,13 +235,45 @@ public class BlockchainService {
         }
     }
 
+    /**
+     * GIAI ĐOẠN 3: AIRDROP BATCH (Chia tiền dư)
+     * Encodes: airdrop(string province, address[] citizens, uint256 amountPerCitizen)
+     */
+    public String airdrop(String province, List<String> citizenAddresses, BigInteger amountPerCitizen) {
+        try {
+            List<Address> addresses = citizenAddresses.stream()
+                    .map(Address::new)
+                    .collect(Collectors.toList());
+
+            Function function = new Function(
+                    "airdrop",
+                    Arrays.asList(
+                            new Utf8String(province),
+                            new DynamicArray<>(Address.class, addresses),
+                            new Uint256(amountPerCitizen)
+                    ),
+                    Collections.emptyList()
+            );
+            return sendTransaction(function);
+        } catch (IOException e) {
+            log.error("airdrop - RPC connection failed", e);
+            throw new BlockchainException("Không thể kết nối đến mạng blockchain");
+        } catch (Exception e) {
+            log.error("airdrop - transaction failed", e);
+            throw new BlockchainException("Giao dịch blockchain thất bại: " + e.getMessage());
+        }
+    }
+
     private String sendTransaction(Function function) throws Exception {
         String encodedFunction = FunctionEncoder.encode(function);
 
         FastRawTransactionManager txManager = getTransactionManager();
 
+        // 30 Gwei = 30 * 10^9 = 30000000000 Wei
+        BigInteger gasPrice = new BigInteger("30000000000"); 
+        
         EthSendTransaction ethSendTransaction = txManager.sendTransaction(
-                DefaultGasProvider.GAS_PRICE,
+                gasPrice,
                 DefaultGasProvider.GAS_LIMIT,
                 contractAddress,
                 encodedFunction,

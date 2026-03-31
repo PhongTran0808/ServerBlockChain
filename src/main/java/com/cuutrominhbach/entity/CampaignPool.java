@@ -22,17 +22,21 @@ public class CampaignPool {
     @Column(name = "is_receiving_active")
     private Boolean isReceivingActive = true;
 
+    @Column(name = "is_auto_airdrop")
+    private Boolean isAutoAirdrop = false;
+
     @Column(name = "updated_at")
     private LocalDateTime updatedAt;
 
     public CampaignPool() {}
 
-    public CampaignPool(Long id, String campaignCode, String province, Long totalFund, Boolean isReceivingActive, LocalDateTime updatedAt) {
+    public CampaignPool(Long id, String campaignCode, String province, Long totalFund, Boolean isReceivingActive, Boolean isAutoAirdrop, LocalDateTime updatedAt) {
         this.id = id;
         this.campaignCode = campaignCode;
         this.province = province;
         this.totalFund = totalFund;
         this.isReceivingActive = isReceivingActive;
+        this.isAutoAirdrop = isAutoAirdrop;
         this.updatedAt = updatedAt;
     }
 
@@ -42,6 +46,7 @@ public class CampaignPool {
     public String getProvince() { return province; }
     public Long getTotalFund() { return totalFund; }
     public Boolean getIsReceivingActive() { return isReceivingActive; }
+    public Boolean getIsAutoAirdrop() { return isAutoAirdrop; }
     public LocalDateTime getUpdatedAt() { return updatedAt; }
 
     // Setters
@@ -50,6 +55,7 @@ public class CampaignPool {
     public void setProvince(String province) { this.province = province; }
     public void setTotalFund(Long totalFund) { this.totalFund = totalFund; }
     public void setIsReceivingActive(Boolean isReceivingActive) { this.isReceivingActive = isReceivingActive; }
+    public void setIsAutoAirdrop(Boolean isAutoAirdrop) { this.isAutoAirdrop = isAutoAirdrop; }
     public void setUpdatedAt(LocalDateTime updatedAt) { this.updatedAt = updatedAt; }
 
     // Builder
@@ -61,6 +67,7 @@ public class CampaignPool {
         private String province;
         private Long totalFund;
         private Boolean isReceivingActive = true;
+        private Boolean isAutoAirdrop = false;
         private LocalDateTime updatedAt;
 
         public Builder id(Long id) { this.id = id; return this; }
@@ -68,10 +75,11 @@ public class CampaignPool {
         public Builder province(String province) { this.province = province; return this; }
         public Builder totalFund(Long totalFund) { this.totalFund = totalFund; return this; }
         public Builder isReceivingActive(Boolean v) { this.isReceivingActive = v; return this; }
+        public Builder isAutoAirdrop(Boolean v) { this.isAutoAirdrop = v; return this; }
         public Builder updatedAt(LocalDateTime updatedAt) { this.updatedAt = updatedAt; return this; }
 
         public CampaignPool build() {
-            return new CampaignPool(id, campaignCode, province, totalFund, isReceivingActive, updatedAt);
+            return new CampaignPool(id, campaignCode, province, totalFund, isReceivingActive, isAutoAirdrop, updatedAt);
         }
     }
 }

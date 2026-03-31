@@ -29,4 +29,8 @@ public interface ReliefBatchRepository extends JpaRepository<ReliefBatch, Long> 
 
     @org.springframework.data.jpa.repository.Query("SELECT DISTINCT b FROM ReliefBatch b LEFT JOIN FETCH b.batchItems bi LEFT JOIN FETCH bi.item LEFT JOIN FETCH b.shop LEFT JOIN FETCH b.transporter")
     List<ReliefBatch> findAllWithItems();
+
+    @org.springframework.data.jpa.repository.Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
+    @org.springframework.data.jpa.repository.Query("SELECT b FROM ReliefBatch b WHERE b.id = :id")
+    java.util.Optional<ReliefBatch> findWithLockById(Long id);
 }

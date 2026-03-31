@@ -310,6 +310,7 @@ public class AdminController {
             row.put("totalDistributed", totalDistributed);
             row.put("remaining", remaining);
             row.put("isReceivingActive", Boolean.TRUE.equals(pool.getIsReceivingActive()));
+            row.put("isAutoAirdrop", Boolean.TRUE.equals(pool.getIsAutoAirdrop()));
             row.put("updatedAt", pool.getUpdatedAt() != null ? pool.getUpdatedAt().toString() : "");
             return row;
         }).collect(Collectors.toList());
@@ -362,6 +363,16 @@ public class AdminController {
         CampaignPool pool = campaignPoolRepository.findById(id)
                 .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy khu vực"));
         pool.setIsReceivingActive(!Boolean.TRUE.equals(pool.getIsReceivingActive()));
+        return ResponseEntity.ok(campaignPoolRepository.save(pool));
+    }
+
+    @PutMapping("/campaigns/{id}/toggle-auto-airdrop")
+    public ResponseEntity<CampaignPool> toggleAutoAirdrop(@PathVariable Long id) {
+        ensureAdmin();
+
+        CampaignPool pool = campaignPoolRepository.findById(id)
+                .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy khu vực"));
+        pool.setIsAutoAirdrop(!Boolean.TRUE.equals(pool.getIsAutoAirdrop()));
         return ResponseEntity.ok(campaignPoolRepository.save(pool));
     }
 

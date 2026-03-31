@@ -19,10 +19,12 @@ public class TransactionController {
 
     private final TransactionService transactionService;
     private final UserRepository userRepository;
+    private final com.cuutrominhbach.service.WalletService walletService;
 
-    public TransactionController(TransactionService transactionService, UserRepository userRepository) {
+    public TransactionController(TransactionService transactionService, UserRepository userRepository, com.cuutrominhbach.service.WalletService walletService) {
         this.transactionService = transactionService;
         this.userRepository = userRepository;
+        this.walletService = walletService;
     }
 
     @GetMapping("/history")
@@ -34,5 +36,14 @@ public class TransactionController {
         List<TransactionStatementResponse> statements = transactionService.getHistory(userId, isAdmin);
         
         return ResponseEntity.ok(statements);
+    }
+
+    @org.springframework.web.bind.annotation.PostMapping("/pay-shop-direct")
+    public ResponseEntity<?> payShopDirect(@org.springframework.web.bind.annotation.RequestBody java.util.Map<String, Object> body) {
+        Long userId = (Long) SecurityContextHolder.getContext().getAuthentication().getPrincipal();
+        Long shopId = Long.valueOf(body.get("shopId").toString());
+        Long amount = Long.valueOf(body.get("amount").toString());
+        String pin = (String) body.get("pin");
+        return ResponseEntity.ok(walletService.payShopDirect(userId, shopId, amount, pin));
     }
 }

@@ -123,7 +123,7 @@ public class GovernmentAdministrativeService {
     }
 
     private List<ProvinceOptionResponse> getDefaultProvinces() {
-        // 34 tỉnh/thành theo dự kiến sáp nhập của chính phủ
+        // 34 tỉnh/thành theo dự kiến sáp nhập của chính phủ - Đã thống nhất tên gọi
         return List.of(
                 new ProvinceOptionResponse("01", "Hà Nội"),
                 new ProvinceOptionResponse("02", "Tuyên Quang"),
@@ -134,25 +134,25 @@ public class GovernmentAdministrativeService {
                 new ProvinceOptionResponse("07", "Hưng Yên"),
                 new ProvinceOptionResponse("08", "Hải Phòng"),
                 new ProvinceOptionResponse("09", "Ninh Bình"),
-                new ProvinceOptionResponse("10", "Thanh Hoá"),
+                new ProvinceOptionResponse("10", "Thanh Hóa"),
                 new ProvinceOptionResponse("11", "Nghệ An"),
                 new ProvinceOptionResponse("12", "Hà Tĩnh"),
                 new ProvinceOptionResponse("13", "Quảng Trị"),
                 new ProvinceOptionResponse("14", "Đà Nẵng"),
                 new ProvinceOptionResponse("15", "Quảng Ngãi"),
                 new ProvinceOptionResponse("16", "Gia Lai"),
-                new ProvinceOptionResponse("17", "Khánh Hoà"),
+                new ProvinceOptionResponse("17", "Khánh Hòa"),
                 new ProvinceOptionResponse("18", "Lâm Đồng"),
                 new ProvinceOptionResponse("19", "Đắk Lắk"),
-                new ProvinceOptionResponse("20", "Thành phố Hồ Chí Minh"),
+                new ProvinceOptionResponse("20", "TP.HCM"),
                 new ProvinceOptionResponse("21", "Đồng Nai"),
                 new ProvinceOptionResponse("22", "Tây Ninh"),
-                new ProvinceOptionResponse("23", "Thành phố Cần Thơ"),
+                new ProvinceOptionResponse("23", "Cần Thơ"),
                 new ProvinceOptionResponse("24", "Vĩnh Long"),
                 new ProvinceOptionResponse("25", "Đồng Tháp"),
                 new ProvinceOptionResponse("26", "Cà Mau"),
                 new ProvinceOptionResponse("27", "An Giang"),
-                new ProvinceOptionResponse("28", "Thành phố Huế"),
+                new ProvinceOptionResponse("28", "Huế"),
                 new ProvinceOptionResponse("29", "Lai Châu"),
                 new ProvinceOptionResponse("30", "Điện Biên"),
                 new ProvinceOptionResponse("31", "Sơn La"),

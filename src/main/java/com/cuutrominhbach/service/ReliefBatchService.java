@@ -195,7 +195,10 @@ public class ReliefBatchService {
 
     @Transactional
     public ReliefBatchResponse claimBatch(Long batchId, Long transporterId, Long shopId) {
-        ReliefBatch batch = getBatchOrThrow(batchId);
+        // Sử dụng Lock bi quan để tránh 2 TNV cùng nhận 1 lô hàng
+        ReliefBatch batch = batchRepository.findWithLockById(batchId)
+                .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy lô cứu trợ #" + batchId));
+
         if (batch.getStatus() != ReliefBatchStatus.CREATED
                 && batch.getStatus() != ReliefBatchStatus.SHOP_REJECTED) {
             throw new IllegalArgumentException("Lô này không thể nhận (trạng thái: " + batch.getStatus() + ")");
@@ -316,7 +319,9 @@ public class ReliefBatchService {
 
     @Transactional(isolation = Isolation.SERIALIZABLE)
     public ReliefBatchResponse deliverToOneCitizen(Long batchId, Long transporterId, String citizenWalletQr) {
-        ReliefBatch batch = getBatchOrThrow(batchId);
+        // Sử dụng Lock bi quan để tránh race condition khi phân phát
+        ReliefBatch batch = batchRepository.findWithLockById(batchId)
+                .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy lô cứu trợ #" + batchId));
 
         if (batch.getStatus() != ReliefBatchStatus.PICKED_UP
                 && batch.getStatus() != ReliefBatchStatus.IN_PROGRESS) {
@@ -334,14 +339,12 @@ public class ReliefBatchService {
             throw new IllegalArgumentException("Lô đã phân phát hết");
         }
 
-        // Tìm citizen theo wallet address từ QR — dùng index query thay vì findAll()
+        // Tìm citizen theo wallet address từ QR
         User citizen = userRepository.findFirstByWalletAddress(citizenWalletQr)
                 .filter(u -> u.getRole() == Role.CITIZEN)
                 .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy người dân với mã QR này"));
 
-        // ── QUAN TRỌNG: Kiểm tra citizen này đã nhận hàng từ lô này chưa ──────
-        // Dùng EXISTS query hiệu quả thay vì load toàn bộ transactions vào bộ nhớ
-        // Tránh tình huống quét 2 lần (debounce bị vượt qua hoặc 2 request song song)
+        // Kiểm tra đã nhận chưa
         boolean alreadyReceived = txRepository.existsByBatchIdAndTypeAndToUserId(
                 batchId, TransactionHistory.TxType.RECEIVE_RELIEF, citizen.getId());
         if (alreadyReceived) {
@@ -351,33 +354,26 @@ public class ReliefBatchService {
         User shop = batch.getShop();
         long tokenAmount = batch.getTokenPerPackage();
 
-        // Gọi Smart Contract: Giai đoạn 2 (deliverBatch - Atomic Escrow)
-        // Kéo tiền từ Quỹ tỉnh (provincePools) sang Ví Shop ngay lập tức
-        String txHash = null;
-        try {
-            if (citizen.getWalletAddress() != null && shop != null && shop.getWalletAddress() != null) {
-                // Wei to Token conversion is 1:1 in our design
-                txHash = blockchainService.deliverBatch(
-                        batch.getProvince(),
-                        citizen.getWalletAddress(),
-                        shop.getWalletAddress(),
-                        BigInteger.valueOf(tokenAmount)
-                );
-                log.info("Khớp lệnh Web3 Thành công (deliverBatch). Tỉnh: {}, Mức: {}, TX: {}", batch.getProvince(), tokenAmount, txHash);
-            } else {
-                 log.warn("Thiếu địa chỉ ví cho hệ thống on-chain. Cần cập nhật Citizen Wallet hoặc Shop Wallet.");
-                 txHash = "mock-delivery-missing-wallet-" + batchId + "-" + citizen.getId();
-            }
-        } catch (Exception e) {
-            log.warn("Blockchain deliver thất bại cho lô #{}, citizen {}: {}", batchId, citizen.getId(), e.getMessage());
-            txHash = "fallback-offline-tx-" + batchId + "-" + citizen.getId();
+        if (citizen.getWalletAddress() == null || shop == null || shop.getWalletAddress() == null) {
+            throw new IllegalArgumentException("Thiếu địa chỉ ví của Citizen hoặc Shop để thực hiện giao dịch Blockchain");
         }
 
+        // Gọi Smart Contract: Giai đoạn 2 (deliverBatch - Atomic Escrow)
+        // Nếu lỗi, BlockchainException sẽ ném ra và @Transactional sẽ ROLLBACK toàn bộ DB bên dưới
+        String txHash = blockchainService.deliverBatch(
+                batch.getProvince(),
+                citizen.getWalletAddress(),
+                shop.getWalletAddress(),
+                BigInteger.valueOf(tokenAmount)
+        );
+
+        log.info("Khớp lệnh Web3 Thành công (deliverBatch). Tỉnh: {}, Mức: {}, TX: {}", batch.getProvince(), tokenAmount, txHash);
+
         // ── 2 Log nguyên tử (Atomic Transaction) ──────────────────────────────
-        // Log 1 — RECEIVE_RELIEF: Province Pool → Citizen (Dân nhận viện trợ)
+        // Log 1 — RECEIVE_RELIEF
         txRepository.save(new TransactionHistory(
-                null,                                        // from = Pool (không phải ví cá nhân)
-                citizen.getId(),                             // to   = Citizen
+                null,
+                citizen.getId(),
                 TransactionHistory.TxType.RECEIVE_RELIEF,
                 tokenAmount,
                 "Nhận viện trợ từ Quỹ " + batch.getProvince() + " — Lô #" + batchId,
@@ -385,10 +381,10 @@ public class ReliefBatchService {
                 batchId
         ));
 
-        // Log 2 — PAY_SHOP: Citizen → Shop (Dân dùng ngay token đó thanh toán hàng)
+        // Log 2 — PAY_SHOP
         txRepository.save(new TransactionHistory(
-                citizen.getId(),                             // from = Citizen
-                shop != null ? shop.getId() : null,          // to   = Shop
+                citizen.getId(),
+                shop.getId(),
                 TransactionHistory.TxType.PAY_SHOP,
                 tokenAmount,
                 "Thanh toán hàng cứu trợ tại Shop — Lô #" + batchId,

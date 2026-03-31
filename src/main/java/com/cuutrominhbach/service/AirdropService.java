@@ -10,12 +10,13 @@ import com.cuutrominhbach.repository.UserRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigInteger;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.stream.Collectors;
 
 @Service
 public class AirdropService {
@@ -46,58 +47,78 @@ public class AirdropService {
      * Airdrop tokens to all CITIZEN users in a province via a background queue.
      * Guaranteed sequential execution to prevent Web3 RPC Rate Limit & Nonce collision.
      */
+    @Transactional
     public String airdrop(String province, Long amountPerCitizen) {
         if (province == null || province.isBlank()) {
             throw new IllegalArgumentException("Tỉnh/Thành phố không được để trống");
         }
         
-        if (distributionRoundRepository.existsByProvince(province)) {
-            throw new IllegalArgumentException("Đã tồn tại Merkle distribution round cho tỉnh này, không thể chạy airdrop legacy để tránh overlap");
-        }
-
         List<User> citizens = userRepository.findByRoleAndProvince(Role.CITIZEN, province);
         if (citizens.isEmpty()) {
             throw new IllegalArgumentException("Không có Citizen nào thuộc tỉnh: " + province);
         }
 
-        log.info("Khởi động Airdrop cho {} người dân tại {}. Xin vui lòng chờ...", citizens.size(), province);
+        List<String> walletAddresses = citizens.stream()
+                .map(User::getWalletAddress)
+                .filter(addr -> addr != null && !addr.isBlank())
+                .collect(Collectors.toList());
 
-        airdropExecutor.submit(() -> {
-            int successCount = 0;
-            log.info("== BẮT ĐẦU VÒNG LẶP AIRDROP NGẦM ({}) ==", province);
+        if (walletAddresses.size() < citizens.size()) {
+            log.warn("Cảnh báo: Có {}/{} Citizen thiếu địa chỉ ví tại {}", 
+                citizens.size() - walletAddresses.size(), citizens.size(), province);
+        }
 
+        if (walletAddresses.isEmpty()) {
+            throw new IllegalArgumentException("Không có Citizen nào có địa chỉ ví hợp lệ để giải ngân");
+        }
+
+        log.info("Đang thực hiện giải ngân BATCH cho {} người dân tại {}...", walletAddresses.size(), province);
+
+        String txHash;
+        try {
+            // Thử gọi batch airdrop trên smart contract
+            txHash = blockchainService.airdrop(
+                    province,
+                    walletAddresses,
+                    BigInteger.valueOf(amountPerCitizen)
+            );
+        } catch (Exception batchEx) {
+            log.warn("Batch airdrop thất bại ({}), fallback sang mint từng người...", batchEx.getMessage());
+            // Fallback: mint từng người một
+            txHash = null;
             for (User citizen : citizens) {
-                if (citizen.getWalletAddress() == null || citizen.getWalletAddress().isBlank()) {
-                    log.warn("Citizen {} không có wallet address, bỏ qua", citizen.getId());
-                    continue;
-                }
+                if (citizen.getWalletAddress() == null || citizen.getWalletAddress().isBlank()) continue;
                 try {
-                    // Call RPC (FastRawTransactionManager ensures correct nonce within a single thread)
-                    String txHash = blockchainService.mintToken(
+                    String singleTx = blockchainService.mintToken(
                             citizen.getWalletAddress(),
                             TOKEN_ID,
                             BigInteger.valueOf(amountPerCitizen)
                     );
-
-                    transactionHistoryRepository.save(new TransactionHistory(
-                        null,
-                        citizen.getId(),
-                        TransactionHistory.TxType.AIRDROP,
-                        amountPerCitizen,
-                        "Nhận cứu trợ (Airdrop) khu vực " + province,
-                        txHash
-                    ));
-                    successCount++;
-                    
-                    // Delay 2000ms to avoid slamming RPC and hitting rate limit (e.g. 429 Too Many Requests)
-                    Thread.sleep(2000); 
+                    if (txHash == null) txHash = singleTx; // lấy hash đầu tiên làm đại diện
                 } catch (Exception e) {
-                    log.error("Airdrop thất bại cho citizen {}: {}", citizen.getId(), e.getMessage());
+                    log.error("Mint thất bại cho citizen {}: {}", citizen.getId(), e.getMessage());
                 }
             }
-            log.info("== HOÀN TẤT AIRDROP ({}) - Thành công {}/{} ==", province, successCount, citizens.size());
-        });
+            if (txHash == null) {
+                throw new RuntimeException("Giải ngân thất bại hoàn toàn: " + batchEx.getMessage());
+            }
+        }
 
-        return "Đã đưa lệnh Airdrop cho " + citizens.size() + " người dân tại " + province + " vào hàng đợi hệ thống!";
+        // 2. Ghi log vào DB (Chỉ chạy khi bước 1 thành công)
+        for (User citizen : citizens) {
+            if (citizen.getWalletAddress() == null || citizen.getWalletAddress().isBlank()) continue;
+            
+            transactionHistoryRepository.save(new TransactionHistory(
+                null,
+                citizen.getId(),
+                TransactionHistory.TxType.AIRDROP,
+                amountPerCitizen,
+                "Nhận cứu trợ (Airdrop) khu vực " + province,
+                txHash
+            ));
+        }
+
+        log.info("== HOÀN TẤT AIRDROP BATCH ({}) - TX: {} ==", province, txHash);
+        return "Giải ngân thành công cho " + walletAddresses.size() + " người dân. Hash: " + txHash;
     }
 }

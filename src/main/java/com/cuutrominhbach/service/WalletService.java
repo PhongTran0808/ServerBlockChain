@@ -7,11 +7,7 @@ import com.cuutrominhbach.repository.*;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.web3j.crypto.Hash;
-import org.web3j.utils.Numeric;
-
 import java.math.BigInteger;
-import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
@@ -89,44 +85,22 @@ public class WalletService {
         if (!Boolean.TRUE.equals(pool.getIsReceivingActive()))
             throw new IllegalArgumentException("Khu vực này đang tạm đóng nhận quyên góp");
 
-        // Lấy danh sách CITIZEN thuộc khu vực
-        List<User> recipients = userRepository.findByRoleAndProvince(Role.CITIZEN, province);
-        if (recipients.isEmpty())
-            throw new IllegalArgumentException("Không có người dân nào trong khu vực này");
-
-        long perPerson = amount / recipients.size();
-        if (perPerson <= 0) throw new IllegalArgumentException("Số tiền quá nhỏ để chia đều");
-
-        String anchorPayload = senderId + ":" + province + ":" + amount + ":" + recipients.size() + ":" + System.currentTimeMillis();
-        String anchorRoot = Numeric.toHexString(Hash.sha3(anchorPayload.getBytes(StandardCharsets.UTF_8)));
-        String txHash = blockchainService.storeMerkleRoot(anchorRoot);
-
-        // Ghi OUT cho người gửi (DONATE: Nhà hảo tâm → Province Pool)
-        txRepository.save(new TransactionHistory(
-                senderId, null, TransactionHistory.TxType.DONATE, amount,
-            "Quyên góp cho khu vực " + province, txHash
-        ));
-
-        // Ghi IN cho từng người nhận (RECEIVE_RELIEF: Province Pool → Citizen)
-        for (User recipient : recipients) {
-            txRepository.save(new TransactionHistory(
-                    senderId, recipient.getId(), TransactionHistory.TxType.RECEIVE_RELIEF, perPerson,
-                    "Nhận quyên góp từ " + sender.getFullName(), txHash
-            ));
-        }
-
-        // Cập nhật pool
+        // 1. Cập nhật pool (Tiền Donate xong chỉ cộng vào CampaignPool - Chấm hết)
         pool.setTotalFund(pool.getTotalFund() + amount);
         pool.setUpdatedAt(LocalDateTime.now());
         campaignPoolRepository.save(pool);
 
+        // 2. Ghi log DONATE cho người gửi (Hào tâm → Quỹ Tỉnh)
+        TransactionHistory tx = new TransactionHistory(
+                senderId, null, TransactionHistory.TxType.DONATE, amount,
+                "Quyên góp cho khu vực " + province, null
+        );
+        txRepository.save(tx);
+
         return Map.of(
                 "message", "Quyên góp thành công",
                 "province", province,
-                "totalAmount", amount,
-                "recipients", recipients.size(),
-                "perPerson", perPerson,
-                "txHash", txHash
+                "totalAmount", amount
         );
     }
 
@@ -161,6 +135,57 @@ public class WalletService {
                 "message", "Yêu cầu rút tiền thành công",
                 "tokenAmount", amount,
                 "vndAmount", vnd
+        );
+    }
+
+    // ── Pay Shop (Citizen scans QR) ───────────────────────────────────────────
+
+    @Transactional
+    public Map<String, Object> payShopDirect(Long citizenId, Long shopId, Long amount, String pin) {
+        if (amount == null || amount <= 0) throw new IllegalArgumentException("Số tiền thanh toán phải lớn hơn 0");
+
+        User citizen = userRepository.findById(citizenId)
+                .orElseThrow(() -> new AuthException("Người dân không tồn tại"));
+
+        if (!passwordEncoder.matches(pin, citizen.getHashPassword()))
+            throw new AuthException("Mã PIN không đúng");
+
+        if (citizen.getRole() != Role.CITIZEN)
+            throw new IllegalArgumentException("Chỉ người dân mới có thể thanh toán");
+
+        User shop = userRepository.findById(shopId)
+                .orElseThrow(() -> new IllegalArgumentException("Cửa hàng không tồn tại"));
+
+        if (shop.getRole() != Role.SHOP)
+            throw new IllegalArgumentException("Mã QR không hợp lệ (Không phải của Shop)");
+
+        if (citizen.getWalletAddress() == null || citizen.getWalletAddress().isBlank() ||
+            shop.getWalletAddress() == null || shop.getWalletAddress().isBlank()) {
+            throw new IllegalArgumentException("Người dân hoặc Cửa hàng chưa có ví blockchain");
+        }
+
+        // Thực hiện chuyển on-chain
+        // Nếu số dư không đủ, hàm này sẽ ném BlockchainException ("Giao dịch blockchain thất bại")
+        String txHash = blockchainService.transferToken(
+                citizen.getWalletAddress(),
+                shop.getWalletAddress(),
+                TOKEN_ID,
+                BigInteger.valueOf(amount)
+        );
+
+        // Ghi transaction history
+        TransactionHistory tx = new TransactionHistory(
+                citizenId, shopId, TransactionHistory.TxType.PAY_SHOP, amount,
+                "Thanh toán mua hàng tại " + (shop.getFullName() != null ? shop.getFullName() : shop.getUsername()),
+                txHash
+        );
+        txRepository.save(tx);
+
+        return Map.of(
+                "message", "Thanh toán thành công",
+                "amount", amount,
+                "shopName", shop.getFullName() != null ? shop.getFullName() : shop.getUsername(),
+                "txHash", txHash
         );
     }
 }

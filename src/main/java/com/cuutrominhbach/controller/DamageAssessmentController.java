@@ -41,6 +41,23 @@ public class DamageAssessmentController {
         return ResponseEntity.ok(result);
     }
 
+    @PostMapping("/transporter/assess-damage-wallet")
+    public ResponseEntity<DamageAssessmentResponse> assessDamageByWallet(
+            @RequestParam("walletAddress") String walletAddress,
+            @RequestParam("damageLevel") Integer damageLevel,
+            @RequestParam(value = "file", required = false) MultipartFile file,
+            HttpServletRequest request) {
+
+        Long transporterId = getUserId(request);
+        String role = getRole(request);
+        if (!"TRANSPORTER".equals(role)) {
+            return ResponseEntity.status(403).build();
+        }
+
+        DamageAssessmentResponse result = damageAssessmentService.assessDamageByWallet(transporterId, walletAddress, damageLevel, file);
+        return ResponseEntity.ok(result);
+    }
+
     @GetMapping("/public/damage-reports")
     public ResponseEntity<List<DamageAssessmentResponse>> getPublicReports() {
         return ResponseEntity.ok(damageAssessmentService.getPublicReports());

@@ -61,6 +61,12 @@ public class DamageAssessmentService {
         return new DamageAssessmentResponse(assessment);
     }
 
+    public DamageAssessmentResponse assessDamageByWallet(Long transporterId, String walletAddress, Integer damageLevel, MultipartFile file) {
+        User citizen = userRepository.findFirstByWalletAddress(walletAddress)
+                .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy người dân với ví: " + walletAddress));
+        return assessDamage(transporterId, citizen.getId(), damageLevel, file);
+    }
+
     public List<DamageAssessmentResponse> getPublicReports() {
         return assessmentRepository.findByStatus(DamageAssessmentStatus.PENDING_3_DAYS)
                 .stream()
@@ -85,6 +91,31 @@ public class DamageAssessmentService {
         // }
 
         assessment.setStatus(DamageAssessmentStatus.DISPUTED);
+        assessmentRepository.save(assessment);
+    }
+
+    public List<DamageAssessmentResponse> getDisputedReports() {
+        return assessmentRepository.findByStatus(DamageAssessmentStatus.DISPUTED)
+                .stream()
+                .map(DamageAssessmentResponse::new)
+                .collect(Collectors.toList());
+    }
+
+    public void resolveDispute(Long assessmentId, boolean acceptReport) {
+        DamageAssessment assessment = assessmentRepository.findById(assessmentId)
+                .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy hồ sơ thiệt hại này!"));
+
+        if (assessment.getStatus() != DamageAssessmentStatus.DISPUTED) {
+            throw new IllegalArgumentException("Hồ sơ không ở trạng thái tranh chấp!");
+        }
+
+        if (acceptReport) {
+            // Report is accepted -> Fraud confirmed -> Reject assignment
+            assessment.setStatus(DamageAssessmentStatus.REJECTED);
+        } else {
+            // Report is dismissed -> Not fraud -> Revert to PENDING to let CronJob auto-approve
+            assessment.setStatus(DamageAssessmentStatus.PENDING_3_DAYS);
+        }
         assessmentRepository.save(assessment);
     }
 }

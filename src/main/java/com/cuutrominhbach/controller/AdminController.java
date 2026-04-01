@@ -287,7 +287,7 @@ public class AdminController {
             }
 
             String note = tx.getNote() == null ? "" : tx.getNote();
-            boolean isDistribution = note.startsWith("Nhận quyên góp") || note.startsWith("Nhận cứu trợ");
+            boolean isDistribution = note.startsWith("Nhận quyên góp") || note.startsWith("Nhận cứu trợ") || note.startsWith("Nhận phân bổ");
             if (!isDistribution) {
                 continue;
             }
@@ -364,6 +364,87 @@ public class AdminController {
                 .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy khu vực"));
         pool.setIsReceivingActive(!Boolean.TRUE.equals(pool.getIsReceivingActive()));
         return ResponseEntity.ok(campaignPoolRepository.save(pool));
+    }
+
+    @PutMapping("/campaigns/{id}/toggle-auto-airdrop")
+    public ResponseEntity<Map<String, Object>> toggleAutoAirdrop(@PathVariable Long id) {
+        ensureAdmin();
+
+        CampaignPool pool = campaignPoolRepository.findById(id)
+                .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy khu vực"));
+        
+        // Nếu bật phân bổ tự động, thực hiện phân bổ ngay lập tức
+        String distributionMessage = null;
+        Map<String, Object> result = new java.util.HashMap<>();
+        boolean isCurrentlyEnabled = Boolean.TRUE.equals(pool.getIsAutoAirdrop());
+        
+        if (!isCurrentlyEnabled) {
+            // Đang bật từ OFF → ON, thực hiện phân bổ ngay
+            try {
+                distributionMessage = airdropService.distributeRemainingFunds(id);
+                result.put("distributed", true);
+                result.put("distributionMessage", distributionMessage);
+                // distributeRemainingFunds đã set isAutoAirdrop = true, không cần toggle nữa
+                // Re-fetch pool từ DB để lấy state mới
+                pool = campaignPoolRepository.findById(id).get();
+            } catch (Exception ex) {
+                result.put("distributed", false);
+                result.put("distributionError", ex.getMessage());
+                // Vẫn set flag = true nếu distribution thất bại
+                pool.setIsAutoAirdrop(true);
+                campaignPoolRepository.save(pool);
+                return ResponseEntity.ok(result);
+            }
+        } else {
+            // Đang tắt từ ON → OFF
+            pool.setIsAutoAirdrop(false);
+            campaignPoolRepository.save(pool);
+            result.put("distributed", false);
+        }
+        
+        // Build full campaign stats object (same format as getCampaignProvinceStats)
+        Map<Long, User> userById = userRepository.findAll().stream()
+                .collect(Collectors.toMap(User::getId, u -> u));
+
+        Map<String, Long> distributedByProvince = new HashMap<>();
+        for (TransactionHistory tx : transactionHistoryRepository.findAll()) {
+            if (tx.getType() != TransactionHistory.TxType.IN || tx.getToUserId() == null || tx.getAmount() == null) {
+                continue;
+            }
+
+            User receiver = userById.get(tx.getToUserId());
+            if (receiver == null || receiver.getRole() != Role.CITIZEN || receiver.getProvince() == null) {
+                continue;
+            }
+
+            String note = tx.getNote() == null ? "" : tx.getNote();
+            boolean isDistribution = note.startsWith("Nhận quyên góp") || note.startsWith("Nhận cứu trợ") || note.startsWith("Nhận phân bổ");
+            if (!isDistribution) {
+                continue;
+            }
+
+            distributedByProvince.merge(receiver.getProvince(), tx.getAmount(), Long::sum);
+        }
+
+        long totalFund = pool.getTotalFund() != null ? pool.getTotalFund() : 0L;
+        long totalDistributed = distributedByProvince.getOrDefault(pool.getProvince(), 0L);
+        long remaining = Math.max(0L, totalFund - totalDistributed);
+
+        Map<String, Object> campaignRow = new HashMap<>();
+        campaignRow.put("id", pool.getId());
+        campaignRow.put("campaignCode", pool.getCampaignCode() == null || pool.getCampaignCode().isBlank()
+            ? "CP-" + pool.getId()
+            : pool.getCampaignCode());
+        campaignRow.put("province", pool.getProvince() == null ? "" : pool.getProvince());
+        campaignRow.put("totalFund", totalFund);
+        campaignRow.put("totalDistributed", totalDistributed);
+        campaignRow.put("remaining", remaining);
+        campaignRow.put("isReceivingActive", Boolean.TRUE.equals(pool.getIsReceivingActive()));
+        campaignRow.put("isAutoAirdrop", Boolean.TRUE.equals(pool.getIsAutoAirdrop()));
+        campaignRow.put("updatedAt", pool.getUpdatedAt() != null ? pool.getUpdatedAt().toString() : "");
+        
+        result.put("campaign", campaignRow);
+        return ResponseEntity.ok(result);
     }
 
     @PutMapping("/campaigns/{id}/distribute-funds")

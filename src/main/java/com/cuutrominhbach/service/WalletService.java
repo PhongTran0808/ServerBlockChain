@@ -20,6 +20,7 @@ public class WalletService {
     private final TransactionHistoryRepository txRepository;
     private final PasswordEncoder passwordEncoder;
     private final BlockchainService blockchainService;
+    private final AirdropService airdropService;
 
     private static final BigInteger TOKEN_ID = BigInteger.ONE;
 
@@ -27,12 +28,14 @@ public class WalletService {
                          CampaignPoolRepository campaignPoolRepository,
                          TransactionHistoryRepository txRepository,
                          PasswordEncoder passwordEncoder,
-                         BlockchainService blockchainService) {
+                         BlockchainService blockchainService,
+                         AirdropService airdropService) {
         this.userRepository = userRepository;
         this.campaignPoolRepository = campaignPoolRepository;
         this.txRepository = txRepository;
         this.passwordEncoder = passwordEncoder;
         this.blockchainService = blockchainService;
+        this.airdropService = airdropService;
     }
 
     // ── Top-up ────────────────────────────────────────────────────────────────
@@ -85,7 +88,7 @@ public class WalletService {
         if (!Boolean.TRUE.equals(pool.getIsReceivingActive()))
             throw new IllegalArgumentException("Khu vực này đang tạm đóng nhận quyên góp");
 
-        // 1. Cập nhật pool (Tiền Donate xong chỉ cộng vào CampaignPool - Chấm hết)
+        // 1. Cập nhật pool (Tiền Donate xong chỉ cộng vào CampaignPool)
         pool.setTotalFund(pool.getTotalFund() + amount);
         pool.setUpdatedAt(LocalDateTime.now());
         campaignPoolRepository.save(pool);
@@ -97,11 +100,27 @@ public class WalletService {
         );
         txRepository.save(tx);
 
-        return Map.of(
-                "message", "Quyên góp thành công",
-                "province", province,
-                "totalAmount", amount
-        );
+        // 3. Nếu khu vực đã bật "Phân bổ quỹ", tự động phân chia tiền quyên góp cho người dân
+        Map<String, Object> result = new java.util.HashMap<>();
+        result.put("message", "Quyên góp thành công");
+        result.put("province", province);
+        result.put("totalAmount", amount);
+        
+        if (Boolean.TRUE.equals(pool.getIsAutoAirdrop())) {
+            try {
+                String distributionMessage = airdropService.distributeRemainingFunds(pool.getId());
+                result.put("autoDistributed", true);
+                result.put("distributionMessage", distributionMessage);
+            } catch (Exception ex) {
+                // Log lỗi nhưng vẫn return thành công donate, distribution là bonus
+                result.put("autoDistributed", false);
+                result.put("distributionError", ex.getMessage());
+            }
+        } else {
+            result.put("autoDistributed", false);
+        }
+        
+        return result;
     }
 
     // ── Get Transactions ──────────────────────────────────────────────────────

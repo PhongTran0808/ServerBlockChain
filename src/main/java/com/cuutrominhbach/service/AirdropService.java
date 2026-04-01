@@ -269,8 +269,9 @@ public class AirdropService {
             throw new RuntimeException("Tất cả giao dịch Blockchain đều thất bại, vui lòng kiểm tra lại");
         }
         
-        // Cuối cùng cập nhật DB auto Airdrop
+        // Cập nhật DB: Mark auto Airdrop và reset totalFund vì đã phân bổ hết
         pool.setIsAutoAirdrop(true);
+        pool.setTotalFund(0L);
         campaignPoolRepository.save(pool);
 
         return resultMessage.toString();

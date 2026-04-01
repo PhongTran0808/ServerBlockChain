@@ -366,14 +366,11 @@ public class AdminController {
         return ResponseEntity.ok(campaignPoolRepository.save(pool));
     }
 
-    @PutMapping("/campaigns/{id}/toggle-auto-airdrop")
-    public ResponseEntity<CampaignPool> toggleAutoAirdrop(@PathVariable Long id) {
+    @PutMapping("/campaigns/{id}/distribute-funds")
+    public ResponseEntity<Map<String, String>> distributeFunds(@PathVariable Long id) {
         ensureAdmin();
-
-        CampaignPool pool = campaignPoolRepository.findById(id)
-                .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy khu vực"));
-        pool.setIsAutoAirdrop(!Boolean.TRUE.equals(pool.getIsAutoAirdrop()));
-        return ResponseEntity.ok(campaignPoolRepository.save(pool));
+        String resultMessage = airdropService.distributeRemainingFunds(id);
+        return ResponseEntity.ok(Map.of("message", resultMessage));
     }
 
     // ── Airdrop ───────────────────────────────────────────────────────────────

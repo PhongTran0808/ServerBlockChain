@@ -31,7 +31,8 @@ public class UserController {
     }
 
     /**
-     * Danh sách cửa hàng đã được duyệt — dùng cho citizen chọn shop khi đặt hàng.
+     * Danh sách cửa hàng đã được duyệt — dùng cho TNV chọn shop khi nhận lô.
+     * Trả về walletAddress để frontend cảnh báo shop chưa có ví blockchain.
      * Endpoint public, không cần quyền ADMIN.
      */
     @GetMapping("/shops")
@@ -39,11 +40,16 @@ public class UserController {
         List<Map<String, Object>> shops = userRepository
                 .findByRoleAndIsApproved(Role.SHOP, true)
                 .stream()
-                .map(u -> Map.<String, Object>of(
-                        "id", u.getId(),
-                        "fullName", u.getFullName() != null ? u.getFullName() : u.getUsername(),
-                        "province", u.getProvince() != null ? u.getProvince() : ""
-                ))
+                .map(u -> {
+                    // Dùng HashMap thay vì Map.of để hỗ trợ giá trị null (walletAddress có thể null)
+                    Map<String, Object> m = new java.util.HashMap<>();
+                    m.put("id", u.getId());
+                    m.put("fullName", u.getFullName() != null ? u.getFullName() : u.getUsername());
+                    m.put("province", u.getProvince() != null ? u.getProvince() : "");
+                    // Trả về walletAddress để frontend lọc shop chưa có ví
+                    m.put("walletAddress", u.getWalletAddress() != null ? u.getWalletAddress() : "");
+                    return m;
+                })
                 .collect(Collectors.toList());
         return ResponseEntity.ok(shops);
     }

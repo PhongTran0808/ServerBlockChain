@@ -20,7 +20,7 @@ public class User {
     @Enumerated(EnumType.STRING)
     private Role role;
 
-    @Column(name = "wallet_address")
+    @jakarta.persistence.Column(name = "wallet_address", length = 100)
     private String walletAddress;
 
     @Column(name = "hash_password")

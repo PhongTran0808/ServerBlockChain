@@ -3,7 +3,6 @@ package com.cuutrominhbach.service;
 import com.cuutrominhbach.blockchain.BlockchainService;
 import com.cuutrominhbach.dto.response.ReliefBatchResponse;
 import com.cuutrominhbach.entity.*;
-import com.cuutrominhbach.exception.AuthException;
 import com.cuutrominhbach.repository.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -15,9 +14,9 @@ import java.math.BigInteger;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.stream.Collectors;
 import org.springframework.transaction.annotation.Isolation;
+import jakarta.persistence.EntityManager;
 
 @Service
 public class ReliefBatchService {
@@ -34,6 +33,7 @@ public class ReliefBatchService {
     private final TransactionHistoryRepository txRepository;
     private final BlockchainService blockchainService;
     private final PasswordEncoder passwordEncoder;
+    private final EntityManager entityManager;
 
     public ReliefBatchService(ReliefBatchRepository batchRepository,
                                UserRepository userRepository,
@@ -43,7 +43,8 @@ public class ReliefBatchService {
                                CampaignPoolRepository campaignPoolRepository,
                                TransactionHistoryRepository txRepository,
                                BlockchainService blockchainService,
-                               PasswordEncoder passwordEncoder) {
+                               PasswordEncoder passwordEncoder,
+                               EntityManager entityManager) {
         this.batchRepository = batchRepository;
         this.userRepository = userRepository;
         this.itemRepository = itemRepository;
@@ -53,6 +54,7 @@ public class ReliefBatchService {
         this.txRepository = txRepository;
         this.blockchainService = blockchainService;
         this.passwordEncoder = passwordEncoder;
+        this.entityManager = entityManager;
     }
 
     // ── ADMIN: Tạo lô cứu trợ ────────────────────────────────────────────────
@@ -222,6 +224,10 @@ public class ReliefBatchService {
             throw new IllegalArgumentException("shopId phải là tài khoản SHOP");
         }
 
+        if (shop.getWalletAddress() == null || shop.getWalletAddress().isBlank()) {
+            throw new IllegalArgumentException("Cửa hàng này chưa được thiết lập địa chỉ ví Blockchain. Vui lòng liên hệ Admin.");
+        }
+
         // Kiểm tra tồn kho: shop phải có đủ số lượng từng vật phẩm trong lô
         List<BatchItem> batchItems = batch.getBatchItems();
         if (!batchItems.isEmpty()) {
@@ -345,10 +351,20 @@ public class ReliefBatchService {
             throw new IllegalArgumentException("Lô đã phân phát hết");
         }
 
-        // Tìm citizen theo wallet address từ QR
-        User citizen = userRepository.findFirstByWalletAddress(citizenWalletQr)
+        // Tìm citizen theo wallet address từ QR (làm sạch dữ liệu QR trước)
+        String cleanedWallet = citizenWalletQr != null ? citizenWalletQr.trim() : "";
+        User citizen = userRepository.findFirstByWalletAddress(cleanedWallet)
                 .filter(u -> u.getRole() == Role.CITIZEN)
-                .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy người dân với mã QR này"));
+                .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy người dân với mã QR này (" + cleanedWallet + ")"));
+
+        // ── VALIDATE TỈNH: Citizen phải thuộc đúng tỉnh của lô ──────────────
+        String batchProvince = batch.getProvince();
+        String citizenProvince = citizen.getProvince();
+        if (citizenProvince == null || !citizenProvince.equalsIgnoreCase(batchProvince)) {
+            throw new IllegalArgumentException(
+                "Người dân này thuộc tỉnh '" + (citizenProvince != null ? citizenProvince : "không xác định")
+                + "', không thuộc lô cứu trợ tỉnh '" + batchProvince + "'");
+        }
 
         // Kiểm tra đã nhận chưa
         boolean alreadyReceived = txRepository.existsByBatchIdAndTypeAndToUserId(
@@ -357,11 +373,41 @@ public class ReliefBatchService {
             throw new IllegalArgumentException("Người dân này đã nhận hàng từ lô #" + batchId + " rồi");
         }
 
-        User shop = batch.getShop();
+        // Xóa cache của Hibernate để đảm bảo không lấy dữ liệu cũ/sai lệch
+        entityManager.refresh(batch);
+
+        // Lấy Shop bằng native query để bypass hoàn toàn Hibernate cache/proxy
+        // — đây là fix cho lô cũ: shop có thể đã được cập nhật walletAddress sau khi lô được tạo
+        User shop = null;
+        if (batch.getShop() != null) {
+            Long shopId = batch.getShop().getId();
+            // Dùng EntityManager.createQuery để force load fresh từ DB, không qua L1/L2 cache
+            try {
+                shop = (User) entityManager.createQuery(
+                        "SELECT u FROM User u WHERE u.id = :id")
+                        .setParameter("id", shopId)
+                        .setHint("jakarta.persistence.cache.retrieveMode", "BYPASS")
+                        .getSingleResult();
+            } catch (Exception e) {
+                shop = userRepository.findById(shopId).orElse(null);
+            }
+            // Nếu walletAddress vẫn null sau khi query fresh → evict khỏi cache rồi thử lại
+            if (shop != null && (shop.getWalletAddress() == null || shop.getWalletAddress().isBlank())) {
+                entityManager.detach(shop);
+                shop = userRepository.findById(shopId).orElse(null);
+            }
+        }
+        
         long tokenAmount = batch.getTokenPerPackage();
 
-        if (citizen.getWalletAddress() == null || shop == null || shop.getWalletAddress() == null) {
-            throw new IllegalArgumentException("Thiếu địa chỉ ví của Citizen hoặc Shop để thực hiện giao dịch Blockchain");
+        if (citizen.getWalletAddress() == null || citizen.getWalletAddress().isBlank()) {
+            throw new IllegalArgumentException("Lỗi: Người dân này chưa có thông tin ví Blockchain trên hệ thống.");
+        }
+        if (shop == null) {
+            throw new IllegalArgumentException("Lỗi hệ thống: Lô hàng #" + batchId + " chưa được gán Cửa hàng (Shop is null).");
+        }
+        if (shop.getWalletAddress() == null || shop.getWalletAddress().isBlank()) {
+            throw new IllegalArgumentException("Lỗi: Cửa hàng " + shop.getFullName() + " (ID: " + shop.getId() + ") chưa được thiết lập địa chỉ ví Blockchain.");
         }
 
         // Gọi Smart Contract: Giai đoạn 2 (deliverBatch - Atomic Escrow)
@@ -375,8 +421,12 @@ public class ReliefBatchService {
 
         log.info("Khớp lệnh Web3 Thành công (deliverBatch). Tỉnh: {}, Mức: {}, TX: {}", batch.getProvince(), tokenAmount, txHash);
 
-        // ── 2 Log nguyên tử (Atomic Transaction) ──────────────────────────────
-        // Log 1 — RECEIVE_RELIEF
+        // ── Tính shopPrice thực tế từ kho của shop ────────────────────────────
+        // Lấy giá shop thấp nhất trong các vật phẩm của lô (nếu có nhiều item, dùng tổng shopPrice)
+        long shopPriceActual = resolveShopPrice(batch, shop.getId(), tokenAmount);
+        long surplusAmount = tokenAmount - shopPriceActual; // phần dư hoàn về quỹ tỉnh
+
+        // ── Log 1: RECEIVE_RELIEF — Hệ thống → Dân (nhận viện trợ) ──────────
         txRepository.save(new TransactionHistory(
                 null,
                 citizen.getId(),
@@ -387,16 +437,37 @@ public class ReliefBatchService {
                 batchId
         ));
 
-        // Log 2 — PAY_SHOP
+        // ── Log 2: PAY_SHOP — Dân → Shop (thanh toán phần shop) ──────────────
         txRepository.save(new TransactionHistory(
                 citizen.getId(),
                 shop.getId(),
                 TransactionHistory.TxType.PAY_SHOP,
-                tokenAmount,
+                shopPriceActual,
                 "Thanh toán hàng cứu trợ tại Shop — Lô #" + batchId,
                 txHash,
                 batchId
         ));
+
+        // ── Log 3 (nếu có dư): RETURN_SURPLUS — Dân → Quỹ tỉnh ──────────────
+        if (surplusAmount > 0) {
+            // Cập nhật quỹ tỉnh trong DB
+            campaignPoolRepository.findByProvince(batch.getProvince()).ifPresent(pool -> {
+                pool.setTotalFund(pool.getTotalFund() + surplusAmount);
+                pool.setUpdatedAt(LocalDateTime.now());
+                campaignPoolRepository.save(pool);
+            });
+            txRepository.save(new TransactionHistory(
+                    citizen.getId(),
+                    null, // to = System (Province Pool)
+                    TransactionHistory.TxType.RETURN_SURPLUS,
+                    surplusAmount,
+                    "Hoàn phần dư về Quỹ " + batch.getProvince() + " — Lô #" + batchId
+                    + " (trần " + tokenAmount + " - shop " + shopPriceActual + ")",
+                    txHash,
+                    batchId
+            ));
+            log.info("Hoàn surplus {} token về quỹ tỉnh {} — Lô #{}", surplusAmount, batch.getProvince(), batchId);
+        }
 
         // Cập nhật delivered_count
         int newCount = batch.getDeliveredCount() + 1;
@@ -410,6 +481,90 @@ public class ReliefBatchService {
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
+
+    /**
+     * Tính tổng shopPrice thực tế của shop cho 1 phần trong lô.
+     * Nếu shop có giá thấp hơn giá trần → trả về shopPrice, phần dư hoàn về quỹ.
+     * Nếu không tìm thấy ShopItem → dùng tokenPerPackage (không có dư).
+     */
+    private long resolveShopPrice(ReliefBatch batch, Long shopId, long tokenPerPackage) {
+        List<BatchItem> batchItems = batch.getBatchItems();
+        if (batchItems == null || batchItems.isEmpty()) {
+            // Legacy single-item: tìm shopItem tương ứng
+            if (batch.getItem() != null) {
+                Long itemId = batch.getItem().getId();
+                return shopItemRepository.findByShopIdAndStatus(shopId, ShopItemStatus.ACTIVE)
+                        .stream()
+                        .filter(si -> si.getItem().getId().equals(itemId))
+                        .findFirst()
+                        .map(si -> si.getShopPrice().longValue())
+                        .orElse(tokenPerPackage);
+            }
+            return tokenPerPackage;
+        }
+
+        // Multi-item combo: tổng (shopPrice × quantity) cho từng item
+        List<com.cuutrominhbach.entity.ShopItem> shopInventory =
+                shopItemRepository.findByShopIdAndStatus(shopId, ShopItemStatus.ACTIVE);
+
+        long totalShopPrice = 0;
+        for (BatchItem bi : batchItems) {
+            Long itemId = bi.getItem().getId();
+            long shopItemPrice = shopInventory.stream()
+                    .filter(si -> si.getItem().getId().equals(itemId))
+                    .findFirst()
+                    .map(si -> si.getShopPrice().longValue())
+                    .orElse(bi.getItem().getPriceTokens()); // fallback: giá trần
+            totalShopPrice += shopItemPrice * bi.getQuantity();
+        }
+        // Không được vượt quá tokenPerPackage (giá trần)
+        return Math.min(totalShopPrice, tokenPerPackage);
+    }
+
+    // ── TNV: Trả lô về Shop khi dân không đến nhận đủ ────────────────────────
+
+    @Transactional
+    public ReliefBatchResponse returnBatchToShop(Long batchId, Long transporterId) {
+        ReliefBatch batch = getBatchOrThrow(batchId);
+
+        if (batch.getStatus() != ReliefBatchStatus.PICKED_UP
+                && batch.getStatus() != ReliefBatchStatus.IN_PROGRESS) {
+            throw new IllegalArgumentException(
+                "Chỉ có thể trả lô đang ở trạng thái PICKED_UP hoặc IN_PROGRESS");
+        }
+        if (batch.getTransporter() == null || !batch.getTransporter().getId().equals(transporterId)) {
+            throw new IllegalArgumentException("Bạn không phải TNV của lô này");
+        }
+
+        int remaining = batch.getTotalPackages() - batch.getDeliveredCount();
+        if (remaining <= 0) {
+            throw new IllegalArgumentException("Lô đã phân phát hết, không cần trả");
+        }
+
+        // Ghi log: hoàn phần chưa phân phát về quỹ tỉnh
+        long refundAmount = (long) remaining * batch.getTokenPerPackage();
+        campaignPoolRepository.findByProvince(batch.getProvince()).ifPresent(pool -> {
+            pool.setTotalFund(pool.getTotalFund() + refundAmount);
+            pool.setUpdatedAt(LocalDateTime.now());
+            campaignPoolRepository.save(pool);
+        });
+
+        txRepository.save(new TransactionHistory(
+                null, null,
+                TransactionHistory.TxType.ALLOCATE_ESCROW, // dùng lại type này để ghi nhận hoàn quỹ
+                refundAmount,
+                "Hoàn " + remaining + " phần chưa phân phát về Quỹ " + batch.getProvince()
+                + " — Lô #" + batchId + " (TNV trả về Shop)",
+                null,
+                batchId
+        ));
+
+        batch.setStatus(ReliefBatchStatus.RETURNED_TO_SHOP);
+        batch.setUpdatedAt(LocalDateTime.now());
+        log.info("Lô #{} được TNV {} trả về Shop. Còn {} phần chưa giao, hoàn {} token về quỹ.",
+                batchId, transporterId, remaining, refundAmount);
+        return ReliefBatchResponse.from(batchRepository.save(batch));
+    }
 
     public List<com.cuutrominhbach.dto.response.TransactionResponse> getBatchTransactions(Long batchId) {
         getBatchOrThrow(batchId); // validate tồn tại

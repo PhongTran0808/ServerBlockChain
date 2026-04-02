@@ -46,6 +46,7 @@ public class TransactionHistory {
         ALLOCATE_ESCROW,    // Province Pool → Batch (tạm giữ khi Admin tạo lô)
         RECEIVE_RELIEF,     // Province Pool → Citizen (Dân được nhận cứu trợ, log 1 của giao hàng)
         PAY_SHOP,           // Citizen → Shop (Dân thanh toán ngay, log 2 của giao hàng)
+        RETURN_SURPLUS,     // Citizen → Province Pool (Hoàn phần dư khi shopPrice < tokenPerPackage)
 
         // ── Giai đoạn 3: Phục hồi ──
         AIRDROP,            // Province Pool → Citizen (Admin chia thẳng tiền còn dư)

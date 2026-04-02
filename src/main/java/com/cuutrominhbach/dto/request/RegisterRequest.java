@@ -6,5 +6,7 @@ public record RegisterRequest(
         String fullName,
         String role,
         String province,
-        String walletAddress
+        String walletAddress,
+        // Mã chiến dịch do tỉnh cấp — dùng để xác thực citizen khi đăng ký
+        String campaignCode
 ) {}

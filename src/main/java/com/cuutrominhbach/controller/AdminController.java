@@ -188,6 +188,59 @@ public class AdminController {
         return ResponseEntity.ok(UserResponse.from(userRepository.save(user)));
     }
 
+    /**
+     * Fix dữ liệu: xóa walletAddress bị ghi đè bởi mã chiến dịch (123456 hoặc giá trị không phải địa chỉ ví).
+     * Chạy 1 lần để khôi phục trạng thái đúng — wallet sẽ là null, admin set lại sau.
+     * Địa chỉ ví hợp lệ phải bắt đầu bằng 0x và có 42 ký tự.
+     */
+    @PostMapping("/users/fix-wallet-data")
+    public ResponseEntity<Map<String, Object>> fixWalletData() {
+        ensureAdmin();
+
+        // Tìm tất cả user có walletAddress không phải địa chỉ Ethereum hợp lệ
+        List<User> corrupted = userRepository.findAll().stream()
+                .filter(u -> u.getWalletAddress() != null
+                        && !u.getWalletAddress().isBlank()
+                        && !u.getWalletAddress().matches("^0x[0-9a-fA-F]{40}$"))
+                .collect(Collectors.toList());
+
+        int fixed = 0;
+        for (User u : corrupted) {
+            u.setWalletAddress(null); // xóa giá trị sai, admin sẽ set lại đúng
+            userRepository.save(u);
+            fixed++;
+        }
+
+        return ResponseEntity.ok(Map.of(
+                "message", "Đã xóa " + fixed + " địa chỉ ví không hợp lệ (bị ghi đè bởi mã chiến dịch)",
+                "fixed", fixed
+        ));
+    }
+
+    /**
+     * Admin cập nhật địa chỉ ví blockchain cho bất kỳ user nào (shop, transporter, citizen).
+     * Đây là bước bắt buộc trước khi shop/transporter tham gia vào luồng phân phát lô hàng.
+     */
+    @PutMapping("/users/{id}/wallet")
+    public ResponseEntity<UserResponse> setWalletAddress(@PathVariable Long id,
+                                                          @RequestBody Map<String, String> body) {
+        ensureAdmin();
+
+        String walletAddress = body.get("walletAddress");
+        if (walletAddress == null || walletAddress.isBlank()) {
+            throw new IllegalArgumentException("Địa chỉ ví không được để trống");
+        }
+        // Validate định dạng địa chỉ Ethereum cơ bản (0x + 40 hex chars)
+        if (!walletAddress.matches("^0x[0-9a-fA-F]{40}$")) {
+            throw new IllegalArgumentException("Địa chỉ ví không đúng định dạng (phải là 0x + 40 ký tự hex)");
+        }
+
+        User user = userRepository.findById(id)
+                .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy người dùng #" + id));
+        user.setWalletAddress(walletAddress.toLowerCase());
+        return ResponseEntity.ok(UserResponse.from(userRepository.save(user)));
+    }
+
     // ── Items ──────────────────────────────────────────────────────────────────
 
     @GetMapping("/items")
@@ -356,14 +409,64 @@ public class AdminController {
         return ResponseEntity.ok(campaignPoolRepository.save(pool));
     }
 
+    /** Đồng bộ: tự động tạo CampaignPool cho tất cả tỉnh có citizen nhưng chưa có pool */
+    @PostMapping("/campaigns/sync-provinces")
+    public ResponseEntity<Map<String, Object>> syncProvinces() {
+        ensureAdmin();
+
+        // Lấy tất cả tỉnh có citizen trong DB
+        List<String> citizenProvinces = userRepository.findByRole(Role.CITIZEN).stream()
+                .map(User::getProvince)
+                .filter(p -> p != null && !p.isBlank())
+                .distinct()
+                .collect(Collectors.toList());
+
+        int created = 0;
+        for (String province : citizenProvinces) {
+            if (campaignPoolRepository.findByProvince(province).isEmpty()) {
+                CampaignPool pool = CampaignPool.builder()
+                        .campaignCode("CP-" + province.toUpperCase().replace(" ", "-"))
+                        .province(province)
+                        .totalFund(0L)
+                        .isReceivingActive(true)
+                        .isAutoAirdrop(false)
+                        .updatedAt(LocalDateTime.now())
+                        .build();
+                campaignPoolRepository.save(pool);
+                created++;
+            }
+        }
+
+        return ResponseEntity.ok(Map.of(
+                "message", "Đã đồng bộ " + created + " tỉnh mới",
+                "created", created,
+                "total", citizenProvinces.size()
+        ));
+    }
+
     @PutMapping("/campaigns/{id}/toggle")
-    public ResponseEntity<CampaignPool> toggleCampaign(@PathVariable Long id) {
+    public ResponseEntity<Map<String, Object>> toggleCampaign(@PathVariable Long id) {
         ensureAdmin();
 
         CampaignPool pool = campaignPoolRepository.findById(id)
                 .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy khu vực"));
         pool.setIsReceivingActive(!Boolean.TRUE.equals(pool.getIsReceivingActive()));
-        return ResponseEntity.ok(campaignPoolRepository.save(pool));
+        pool.setUpdatedAt(LocalDateTime.now());
+        campaignPoolRepository.save(pool);
+
+        // Trả về cùng format với province-stats để frontend map đúng
+        Map<String, Object> row = new java.util.HashMap<>();
+        row.put("id", pool.getId());
+        row.put("campaignCode", pool.getCampaignCode() == null || pool.getCampaignCode().isBlank()
+            ? "CP-" + pool.getId() : pool.getCampaignCode());
+        row.put("province", pool.getProvince() == null ? "" : pool.getProvince());
+        row.put("totalFund", pool.getTotalFund() != null ? pool.getTotalFund() : 0L);
+        row.put("totalDistributed", 0L);
+        row.put("remaining", pool.getTotalFund() != null ? pool.getTotalFund() : 0L);
+        row.put("isReceivingActive", Boolean.TRUE.equals(pool.getIsReceivingActive()));
+        row.put("isAutoAirdrop", Boolean.TRUE.equals(pool.getIsAutoAirdrop()));
+        row.put("updatedAt", pool.getUpdatedAt() != null ? pool.getUpdatedAt().toString() : "");
+        return ResponseEntity.ok(row);
     }
 
     @PutMapping("/campaigns/{id}/toggle-auto-airdrop")

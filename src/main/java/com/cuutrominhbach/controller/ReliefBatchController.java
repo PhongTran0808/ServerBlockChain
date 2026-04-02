@@ -138,6 +138,14 @@ public class ReliefBatchController {
         return ResponseEntity.noContent().build();
     }
 
+    /** POST /api/batches/{id}/return — TNV trả lô về Shop khi dân không đến nhận đủ */
+    @PostMapping("/{id}/return")
+    public ResponseEntity<ReliefBatchResponse> returnBatch(@PathVariable Long id,
+                                                            HttpServletRequest request) {
+        Long transporterId = getUserId(request);
+        return ResponseEntity.ok(batchService.returnBatchToShop(id, transporterId));
+    }
+
     /** GET /api/batches/{id}/transactions — Xem tất cả giao dịch của 1 lô (truy vết) */
     @GetMapping("/{id}/transactions")
     public ResponseEntity<List<com.cuutrominhbach.dto.response.TransactionResponse>> getBatchTransactions(

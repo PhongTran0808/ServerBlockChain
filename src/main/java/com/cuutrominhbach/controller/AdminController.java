@@ -573,6 +573,67 @@ public class AdminController {
         ));
     }
 
+    /**
+     * Cấp ví tự động cho 1 user cụ thể (SHOP/TRANSPORTER/CITIZEN chưa có ví).
+     * Dùng SHA-256(username_ROLE) để tạo địa chỉ ví deterministic.
+     */
+    @PostMapping("/users/{id}/auto-wallet")
+    public ResponseEntity<UserResponse> autoAssignWallet(@PathVariable Long id) {
+        ensureAdmin();
+
+        User user = userRepository.findById(id)
+                .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy người dùng #" + id));
+
+        if (user.getWalletAddress() != null && !user.getWalletAddress().isBlank()) {
+            return ResponseEntity.ok(UserResponse.from(user)); // đã có ví rồi
+        }
+
+        String wallet = generateWalletAddress(user.getUsername() + "_" + user.getRole().name());
+        user.setWalletAddress(wallet);
+        return ResponseEntity.ok(UserResponse.from(userRepository.save(user)));
+    }
+
+    /**
+     * Cấp ví hàng loạt cho tất cả SHOP/TRANSPORTER chưa có walletAddress.
+     * Dùng SHA-256(username_ROLE) để tạo địa chỉ ví deterministic.
+     */
+    @PostMapping("/users/bulk-assign-wallets")
+    public ResponseEntity<Map<String, Object>> bulkAssignWallets() {
+        ensureAdmin();
+
+        List<User> targets = userRepository.findAll().stream()
+                .filter(u -> (u.getRole() == Role.SHOP || u.getRole() == Role.TRANSPORTER)
+                        && (u.getWalletAddress() == null || u.getWalletAddress().isBlank()))
+                .collect(Collectors.toList());
+
+        int assigned = 0;
+        for (User u : targets) {
+            String wallet = generateWalletAddress(u.getUsername() + "_" + u.getRole().name());
+            u.setWalletAddress(wallet);
+            userRepository.save(u);
+            assigned++;
+        }
+
+        return ResponseEntity.ok(Map.of(
+                "message", "Đã cấp ví cho " + assigned + " tài khoản",
+                "assigned", assigned
+        ));
+    }
+
+    private String generateWalletAddress(String seed) {
+        try {
+            java.security.MessageDigest md = java.security.MessageDigest.getInstance("SHA-256");
+            byte[] hash = md.digest(seed.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            StringBuilder sb = new StringBuilder("0x");
+            for (int i = 0; i < 20; i++) {
+                sb.append(String.format("%02x", hash[i] & 0xff));
+            }
+            return sb.toString();
+        } catch (Exception e) {
+            return "0x" + String.format("%040x", Math.abs((long) seed.hashCode()));
+        }
+    }
+
     private void ensureAdmin() {
         Long userId = (Long) SecurityContextHolder.getContext().getAuthentication().getPrincipal();
         User current = userRepository.findById(userId)

@@ -2,6 +2,7 @@ package com.cuutrominhbach.controller;
 
 import com.cuutrominhbach.dto.response.ReliefBatchResponse;
 import com.cuutrominhbach.security.JwtTokenProvider;
+import com.cuutrominhbach.security.RequireWallet;
 import com.cuutrominhbach.service.ReliefBatchService;
 import io.jsonwebtoken.Claims;
 import org.springframework.http.ResponseEntity;
@@ -63,6 +64,7 @@ public class ReliefBatchController {
     }
 
     /** POST /api/batches/{id}/claim — TNV nhận lô + chọn shop */
+    @RequireWallet
     @PostMapping("/{id}/claim")
     public ResponseEntity<ReliefBatchResponse> claimBatch(@PathVariable Long id,
                                                            @RequestBody Map<String, Object> body,
@@ -83,6 +85,7 @@ public class ReliefBatchController {
     }
 
     /** POST /api/batches/{id}/deliver — TNV quét QR citizen phân phát 1 phần */
+    @RequireWallet
     @PostMapping("/{id}/deliver")
     public ResponseEntity<ReliefBatchResponse> deliverToOneCitizen(@PathVariable Long id,
                                                                      @RequestBody Map<String, Object> body,

@@ -15,6 +15,8 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.time.LocalDateTime;
 
 @Service
@@ -104,13 +106,17 @@ public class AuthService {
 
         Boolean isApproved = (role == Role.SHOP || role == Role.TRANSPORTER) ? null : true;
 
-        // CITIZEN không lưu walletAddress từ request (ví tạo riêng bởi admin/seeder)
-        // SHOP/TRANSPORTER cũng không lưu walletAddress từ đây (admin set sau)
+        // Auto-generate wallet cho SHOP/TRANSPORTER dựa trên username (SHA-256)
+        String walletAddress = null;
+        if (role == Role.SHOP || role == Role.TRANSPORTER) {
+            walletAddress = generateWalletAddress(username + "_" + role.name());
+        }
+
         User user = User.builder()
                 .username(username)
                 .fullName(request.fullName() == null ? username : request.fullName().trim())
                 .role(role)
-                .walletAddress(null) // wallet được set riêng, không lấy từ form đăng ký
+                .walletAddress(walletAddress)
                 .hashPassword(passwordEncoder.encode(request.password()))
                 .province(request.province() == null ? null : request.province().trim())
                 .isApproved(isApproved)
@@ -145,5 +151,19 @@ public class AuthService {
                 saved.getRole().name(),
                 approvalStatus
         );
+    }
+
+    private String generateWalletAddress(String seed) {
+        try {
+            MessageDigest md = MessageDigest.getInstance("SHA-256");
+            byte[] hash = md.digest(seed.getBytes(StandardCharsets.UTF_8));
+            StringBuilder sb = new StringBuilder("0x");
+            for (int i = 0; i < 20; i++) {
+                sb.append(String.format("%02x", hash[i] & 0xff));
+            }
+            return sb.toString();
+        } catch (Exception e) {
+            return "0x" + String.format("%040x", Math.abs((long) seed.hashCode()));
+        }
     }
 }

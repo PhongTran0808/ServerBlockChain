@@ -20,4 +20,5 @@ public interface UserRepository extends JpaRepository<User, Long> {
     long countByRole(Role role);
     long countByRoleAndIsApproved(Role role, Boolean isApproved);
     long countByRoleAndProvince(Role role, String province);
+    boolean existsByWalletAddressAndIdNot(String walletAddress, Long id);
 }

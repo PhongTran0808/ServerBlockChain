@@ -360,8 +360,19 @@ public class ReliefBatchService {
         User shop = batch.getShop();
         long tokenAmount = batch.getTokenPerPackage();
 
-        if (citizen.getWalletAddress() == null || shop == null || shop.getWalletAddress() == null) {
-            throw new IllegalArgumentException("Thiếu địa chỉ ví của Citizen hoặc Shop để thực hiện giao dịch Blockchain");
+        // Detailed validation with better error messages
+        if (shop == null) {
+            throw new IllegalArgumentException("Lô cứu trợ chưa được Shop nào nhận. Vui lòng chọn Shop trước.");
+        }
+        
+        if (citizen.getWalletAddress() == null || citizen.getWalletAddress().trim().isEmpty()) {
+            log.error("Citizen ID {} has no wallet address", citizen.getId());
+            throw new IllegalArgumentException("Người dân không có địa chỉ ví. Vui lòng kiểm tra lại.");
+        }
+        
+        if (shop.getWalletAddress() == null || shop.getWalletAddress().trim().isEmpty()) {
+            log.error("Shop ID {} has no wallet address", shop.getId());
+            throw new IllegalArgumentException("Cửa hàng không có địa chỉ ví. Vui lòng liên hệ Administrator.");
         }
 
         // Gọi Smart Contract: Giai đoạn 2 (deliverBatch - Atomic Escrow)

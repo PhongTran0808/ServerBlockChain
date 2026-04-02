@@ -6,6 +6,8 @@ import com.cuutrominhbach.entity.DamageAssessmentStatus;
 import com.cuutrominhbach.entity.User;
 import com.cuutrominhbach.repository.DamageAssessmentRepository;
 import com.cuutrominhbach.repository.UserRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -15,17 +17,21 @@ import java.util.stream.Collectors;
 
 @Service
 public class DamageAssessmentService {
+    private static final Logger log = LoggerFactory.getLogger(DamageAssessmentService.class);
 
     private final DamageAssessmentRepository assessmentRepository;
     private final UserRepository userRepository;
     private final GitHubStorageService gitHubStorageService;
+    private final FileStorageService fileStorageService;
 
     public DamageAssessmentService(DamageAssessmentRepository assessmentRepository,
                                    UserRepository userRepository,
-                                   GitHubStorageService gitHubStorageService) {
+                                   GitHubStorageService gitHubStorageService,
+                                   FileStorageService fileStorageService) {
         this.assessmentRepository = assessmentRepository;
         this.userRepository = userRepository;
         this.gitHubStorageService = gitHubStorageService;
+        this.fileStorageService = fileStorageService;
     }
 
     public DamageAssessmentResponse assessDamage(Long transporterId, Long citizenId, Integer damageLevel, MultipartFile file) {
@@ -46,9 +52,19 @@ public class DamageAssessmentService {
         String fileUrl = null;
         if (file != null && !file.isEmpty()) {
             try {
+                // Try to upload to GitHub first
                 fileUrl = gitHubStorageService.uploadFile(file);
-            } catch (Exception e) {
-                throw new RuntimeException("Không thể tải ảnh lên GitHub: " + e.getMessage(), e);
+                log.info("File uploaded to GitHub successfully");
+            } catch (Exception gitHubError) {
+                log.warn("GitHub upload failed, falling back to local storage: {}", gitHubError.getMessage());
+                try {
+                    // Fallback to local storage if GitHub fails
+                    fileUrl = fileStorageService.storeFile(file);
+                    log.info("File uploaded to local storage as fallback");
+                } catch (Exception localError) {
+                    log.error("Both GitHub and local storage failed", localError);
+                    throw new RuntimeException("Không thể lưu ảnh: " + localError.getMessage(), localError);
+                }
             }
         }
 

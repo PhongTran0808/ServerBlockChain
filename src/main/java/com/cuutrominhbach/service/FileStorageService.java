@@ -52,4 +52,13 @@ public class FileStorageService {
             throw new RuntimeException("Could not store file " + fileName + ". Please try again!", ex);
         }
     }
+
+    public boolean fileExists(String fileName) {
+        try {
+            Path targetLocation = this.fileStorageLocation.resolve(fileName);
+            return Files.exists(targetLocation);
+        } catch (Exception e) {
+            return false;
+        }
+    }
 }

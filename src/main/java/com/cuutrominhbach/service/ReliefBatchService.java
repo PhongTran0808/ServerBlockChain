@@ -175,6 +175,12 @@ public class ReliefBatchService {
                 .map(ReliefBatchResponse::from).collect(Collectors.toList());
     }
 
+    // ── Lấy chi tiết 1 lô theo ID (dùng chung) ────────────────────────────
+
+    public ReliefBatchResponse getBatchById(Long id) {
+        return ReliefBatchResponse.from(getBatchOrThrow(id));
+    }
+
     // ── TNV: Xem lô theo tỉnh (status = CREATED) ─────────────────────────────
 
     public List<ReliefBatchResponse> getAvailableBatches(String province) {

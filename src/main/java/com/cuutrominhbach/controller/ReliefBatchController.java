@@ -124,6 +124,12 @@ public class ReliefBatchController {
         return ResponseEntity.ok(batchService.rejectBatch(id, shopId));
     }
 
+    /** GET /api/batches/{id} — Xem chi tiết 1 lô theo ID */
+    @GetMapping("/{id}")
+    public ResponseEntity<ReliefBatchResponse> getBatchById(@PathVariable Long id) {
+        return ResponseEntity.ok(batchService.getBatchById(id));
+    }
+
     /** DELETE /api/batches/{id} — Admin xóa lô (chỉ khi CREATED) */
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> deleteBatch(@PathVariable Long id, HttpServletRequest request) {

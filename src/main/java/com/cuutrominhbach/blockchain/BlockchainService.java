@@ -281,9 +281,11 @@ public class BlockchainService {
         );
 
         if (ethSendTransaction.hasError()) {
-            throw new BlockchainException(
-                    "Giao dịch blockchain thất bại: " + ethSendTransaction.getError().getMessage()
-            );
+            String errMsg = ethSendTransaction.getError().getMessage();
+            if (errMsg != null && (errMsg.contains("Ho so da duoc duyet") || errMsg.contains("execution reverted"))) {
+                throw new BlockchainException("Giao dịch bị từ chối: Hồ sơ này có thể đã được tiếp nhận bởi một người khác (Race Condition).");
+            }
+            throw new BlockchainException("Giao dịch blockchain thất bại: " + errMsg);
         }
 
         return ethSendTransaction.getTransactionHash();

@@ -18,14 +18,14 @@ public class DamageAssessmentService {
 
     private final DamageAssessmentRepository assessmentRepository;
     private final UserRepository userRepository;
-    private final FileStorageService fileStorageService;
+    private final GitHubStorageService gitHubStorageService;
 
     public DamageAssessmentService(DamageAssessmentRepository assessmentRepository,
                                    UserRepository userRepository,
-                                   FileStorageService fileStorageService) {
+                                   GitHubStorageService gitHubStorageService) {
         this.assessmentRepository = assessmentRepository;
         this.userRepository = userRepository;
-        this.fileStorageService = fileStorageService;
+        this.gitHubStorageService = gitHubStorageService;
     }
 
     public DamageAssessmentResponse assessDamage(Long transporterId, Long citizenId, Integer damageLevel, MultipartFile file) {
@@ -45,7 +45,11 @@ public class DamageAssessmentService {
 
         String fileUrl = null;
         if (file != null && !file.isEmpty()) {
-            fileUrl = fileStorageService.storeFile(file);
+            try {
+                fileUrl = gitHubStorageService.uploadFile(file);
+            } catch (Exception e) {
+                throw new RuntimeException("Không thể tải ảnh lên GitHub: " + e.getMessage(), e);
+            }
         }
 
         DamageAssessment assessment = new DamageAssessment(

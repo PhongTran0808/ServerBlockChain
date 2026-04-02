@@ -18,7 +18,7 @@ import java.util.UUID;
 public class GitHubStorageService {
 
     private static final String GITHUB_API_URL = "https://api.github.com";
-    private static final String GITHUB_TOKEN = "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";
+    private static final String GITHUB_TOKEN = "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";
     private static final String REPO_OWNER = "xinloihuy";
     private static final String REPO_NAME = "git_test";
     private static final String BRANCH = "main";

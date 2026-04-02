@@ -88,7 +88,12 @@ public class ReliefBatchController {
                                                                      @RequestBody Map<String, Object> body,
                                                                      HttpServletRequest request) {
         Long transporterId = getUserId(request);
-        String citizenWallet = (String) body.get("citizenWallet");
+        String citizenWallet = body != null ? (String) body.get("citizenWallet") : null;
+        
+        if (citizenWallet == null || citizenWallet.trim().isEmpty()) {
+            return ResponseEntity.badRequest().build();
+        }
+        
         return ResponseEntity.ok(batchService.deliverToOneCitizen(id, transporterId, citizenWallet));
     }
 

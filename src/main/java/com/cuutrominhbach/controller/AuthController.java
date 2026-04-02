@@ -44,7 +44,15 @@ public class AuthController {
     @PostMapping("/register")
     public ResponseEntity<?> register(@RequestBody RegisterRequest request) {
         try {
-            RegisterResponse response = authService.register(request);
+            // Auto-generate wallet address for any role if not provided
+            RegisterRequest finalRequest = request;
+            if (request.walletAddress() == null || request.walletAddress().trim().isEmpty()) {
+                String autoWallet = generateWalletAddress(request.username() + "_" + request.role());
+                finalRequest = new RegisterRequest(request.username(), request.password(), request.fullName(), 
+                                                   request.role(), request.province(), autoWallet);
+                log.info("Auto-generated wallet address for {} role: {}", request.role(), autoWallet);
+            }
+            RegisterResponse response = authService.register(finalRequest);
             return ResponseEntity.status(HttpStatus.CREATED).body(response);
         } catch (AuthException ex) {
             return ResponseEntity.status(HttpStatus.BAD_REQUEST)
@@ -53,6 +61,25 @@ public class AuthController {
             log.error("REGISTER ERROR: {}", ex.getMessage(), ex);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                     .body(Map.of("error", "Lỗi hệ thống"));
+        }
+    }
+
+    private String generateWalletAddress(String username) {
+        // Generate deterministic wallet address based on username using SHA-256
+        try {
+            java.security.MessageDigest md = java.security.MessageDigest.getInstance("SHA-256");
+            byte[] hash = md.digest(username.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            StringBuilder hexString = new StringBuilder("0x");
+            for (int i = 0; i < Math.min(20, hash.length); i++) {
+                String hex = Integer.toHexString(0xff & hash[i]);
+                if (hex.length() == 1) hexString.append('0');
+                hexString.append(hex);
+            }
+            return hexString.toString();
+        } catch (Exception e) {
+            log.warn("Failed to generate wallet address from username, using fallback");
+            // Fallback: use part of the username with an Ethereum-like prefix
+            return "0x" + String.format("%039s", Integer.toHexString(username.hashCode())).replace(' ', '0');
         }
     }
 }
